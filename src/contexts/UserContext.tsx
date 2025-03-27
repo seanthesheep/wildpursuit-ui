@@ -1,0 +1,128 @@
+import React, { createContext, useState, useContext, useEffect } from 'react';
+
+export type UserRole = 'admin' | 'hunter' | 'viewer';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  clubMemberships?: string[]; // IDs of clubs the user belongs to
+  isClubAdmin?: boolean; // Whether the user is a club admin (can moderate content)
+}
+
+interface UserContextType {
+  user: User | null;
+  setUser: (user: User | null) => void;
+  switchUser: (userId: string) => void;
+  isAdmin: boolean;
+  allUsers: Record<string, User>;
+  clubs: Record<string, ClubData>;
+}
+
+export interface ClubData {
+  id: string;
+  name: string;
+  description: string;
+  location: string;
+  memberIds: string[];
+  adminIds: string[];
+  dateCreated: string;
+  imageUrl?: string;
+}
+
+// Sample users
+const sampleUsers: Record<string, User> = {
+  'admin': {
+    id: 'admin',
+    name: 'Club Admin',
+    email: 'admin@huntclub.com',
+    role: 'admin',
+    clubMemberships: ['club1', 'club2'],
+    isClubAdmin: true
+  },
+  'hunter1': {
+    id: 'hunter1',
+    name: 'John Doe',
+    email: 'john@example.com',
+    role: 'hunter',
+    clubMemberships: ['club1']
+  },
+  'hunter2': {
+    id: 'hunter2',
+    name: 'Jane Smith',
+    email: 'jane@example.com',
+    role: 'hunter',
+    clubMemberships: ['club1', 'club2']
+  },
+  'hunter3': {
+    id: 'hunter3',
+    name: 'Mike Johnson',
+    email: 'mike@example.com',
+    role: 'hunter',
+    clubMemberships: ['club2']
+  },
+  'viewer': {
+    id: 'viewer',
+    name: 'Guest User',
+    email: 'guest@example.com',
+    role: 'viewer'
+  }
+};
+
+// Sample clubs
+const sampleClubs: Record<string, ClubData> = {
+  'club1': {
+    id: 'club1',
+    name: 'Big Deer Hunting Club',
+    description: 'Premier hunting club with exclusive access to prime whitetail land across 1,200 acres.',
+    location: 'Jonesville, GA',
+    memberIds: ['admin', 'hunter1', 'hunter2'],
+    adminIds: ['admin'],
+    dateCreated: 'Jan 12, 2024',
+    imageUrl: 'https://same-assets.com/10c27f66-f29e-44a5-8ba3-a6dbf30b9d24.jpg'
+  },
+  'club2': {
+    id: 'club2',
+    name: 'Oak Ridge Outfitters',
+    description: 'Family-owned hunting property providing guided hunts and comfortable lodging.',
+    location: 'Springfield, MO',
+    memberIds: ['admin', 'hunter2', 'hunter3'],
+    adminIds: ['admin', 'hunter2'],
+    dateCreated: 'Mar 3, 2024',
+    imageUrl: 'https://same-assets.com/0a5ef9d3-9070-4d8d-b04b-9c9a9ea0008b.jpg'
+  }
+};
+
+const UserContext = createContext<UserContextType | undefined>(undefined);
+
+export const UserProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(sampleUsers.admin);
+
+  const switchUser = (userId: string) => {
+    if (sampleUsers[userId]) {
+      setUser(sampleUsers[userId]);
+    }
+  };
+
+  return (
+    <UserContext.Provider value={{
+      user,
+      setUser,
+      switchUser,
+      isAdmin: user?.role === 'admin',
+      allUsers: sampleUsers,
+      clubs: sampleClubs
+    }}>
+      {children}
+    </UserContext.Provider>
+  );
+};
+
+export const useUser = () => {
+  const context = useContext(UserContext);
+  if (context === undefined) {
+    throw new Error('useUser must be used within a UserProvider');
+  }
+  return context;
+};
