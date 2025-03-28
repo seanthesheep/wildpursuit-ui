@@ -95,6 +95,16 @@ const MapView: React.FC = () => {
         }),
         'bottom-right'
       );
+
+      // Add click event listener to the map
+      map.current.on('click', (e) => {
+        if (addingMarker) {
+          setClickedPoint({
+            longitude: e.lngLat.lng,
+            latitude: e.lngLat.lat,
+          });
+        }
+      });
     } catch (error) {
       console.error('Error initializing map:', error);
     }
@@ -105,7 +115,19 @@ const MapView: React.FC = () => {
         map.current = null;
       }
     };
-  }, []); // Empty dependency array ensures this runs only once
+  }, [addingMarker]); // Add `addingMarker` as a dependency
+
+  useEffect(() => {
+    if (!map.current) return;
+
+    if (addingMarker) {
+      map.current.dragPan.disable();
+      map.current.scrollZoom.disable();
+    } else {
+      map.current.dragPan.enable();
+      map.current.scrollZoom.enable();
+    }
+  }, [addingMarker]);
 
   // Update view state when map moves
   useEffect(() => {
@@ -325,6 +347,18 @@ const MapView: React.FC = () => {
       Object.values(mapPopups.current).forEach(popup => popup.remove());
     };
   }, [markers, map.current, setSelectedMarkerId]);
+
+  useEffect(() => {
+    if (!map.current || !clickedPoint) return;
+
+    const tempMarker = new mapboxgl.Marker({ color: 'blue' })
+      .setLngLat([clickedPoint.longitude, clickedPoint.latitude])
+      .addTo(map.current);
+
+    return () => {
+      tempMarker.remove();
+    };
+  }, [clickedPoint]);
 
   // Handle form submission for adding a new marker
   const handleAddMarker = () => {
