@@ -8,6 +8,8 @@ export interface User {
   password: string; // This should ideally be omitted or hashed in production
   role: UserRole; // Use the UserRole type here
   name: string;
+  clubMemberships?: string[]; // Optional array of club IDs the user is a member of
+  subscription?: string; // Optional subscription type (e.g., 'Pro', 'Basic')
 }
 
 interface UserContextType {
@@ -17,6 +19,9 @@ interface UserContextType {
   isAdmin: boolean;
   allUsers: Record<string, User>;
   clubs: Record<string, ClubData>;
+  updateUser: (updatedUser: Partial<User>) => void; // Method to update user details
+  updatePreferences: (preferences: Record<string, any>) => void; // Method to update user preferences
+  logout: () => void; // Method to log out the user
 }
 
 export interface ClubData {
@@ -88,7 +93,7 @@ const sampleClubs: Record<string, ClubData> = {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-export const UserProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(sampleUsers.admin);
 
   const switchUser = (userId: string) => {
@@ -97,15 +102,35 @@ export const UserProvider: React.FC<{children: React.ReactNode}> = ({ children }
     }
   };
 
+  const updateUser = (updatedUser: Partial<User>) => {
+    setUser((prevUser) => (prevUser ? { ...prevUser, ...updatedUser } : null));
+  };
+
+  const updatePreferences = (preferences: Record<string, any>) => {
+    console.log('Updating preferences:', preferences);
+    // Add logic to update preferences (e.g., API call)
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('isAuthenticated');
+    localStorage.removeItem('user');
+  };
+
   return (
-    <UserContext.Provider value={{
-      user,
-      setUser,
-      switchUser,
-      isAdmin: user?.role === 'admin',
-      allUsers: sampleUsers,
-      clubs: sampleClubs
-    }}>
+    <UserContext.Provider
+      value={{
+        user,
+        setUser,
+        switchUser,
+        isAdmin: user?.role === 'admin',
+        allUsers: sampleUsers,
+        clubs: sampleClubs,
+        updateUser,
+        updatePreferences,
+        logout,
+      }}
+    >
       {children}
     </UserContext.Provider>
   );

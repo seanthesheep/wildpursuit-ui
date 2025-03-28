@@ -12,20 +12,42 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Hardcoded sample users
-const sampleUsers = {
+const sampleUsers: Record<string, User> = {
   admin: {
     id: 'admin',
-    email: 'admin@wildpursuit.net',
-    password: 'wildpursuit123', // Replace with hashed passwords in production
-    role: 'admin' as UserRole, // Explicitly cast to UserRole
-    name: 'Admin User',
+    name: 'Club Admin',
+    email: 'admin@huntclub.com',
+    password: 'admin123', // Example password
+    role: 'admin',
+    clubMemberships: ['club1', 'club2'], // Example club memberships
+    subscription: 'Pro', // Example subscription
   },
-  hunter: {
-    id: 'hunter',
-    email: 'hunter@wildpursuit.net',
-    password: 'wildpursuit123', // Replace with hashed passwords in production
-    role: 'hunter' as UserRole, // Explicitly cast to UserRole
-    name: 'Hunter User',
+  hunter1: {
+    id: 'hunter1',
+    name: 'John Doe',
+    email: 'john@example.com',
+    password: 'hunter123', // Example password
+    role: 'hunter',
+    clubMemberships: ['club1'], // Example club memberships
+    subscription: 'Basic', // Example subscription
+  },
+  hunter2: {
+    id: 'hunter2',
+    name: 'Jane Smith',
+    email: 'jane@example.com',
+    password: 'hunter456', // Example password
+    role: 'hunter',
+    clubMemberships: ['club1', 'club2'], // Example club memberships
+    subscription: 'Pro', // Example subscription
+  },
+  hunter3: {
+    id: 'hunter3',
+    name: 'Mike Johnson',
+    email: 'mike@example.com',
+    password: 'hunter789', // Example password
+    role: 'hunter',
+    clubMemberships: ['club2'], // Example club memberships
+    subscription: 'Basic', // Example subscription
   },
 };
 
