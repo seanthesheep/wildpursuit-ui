@@ -1,14 +1,13 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 
-export type UserRole = 'admin' | 'hunter' | 'viewer';
+export type UserRole = 'admin' | 'hunter'; // Define the allowed roles
 
 export interface User {
   id: string;
-  name: string;
   email: string;
-  role: UserRole;
-  clubMemberships?: string[]; // IDs of clubs the user belongs to
-  isClubAdmin?: boolean; // Whether the user is a club admin (can moderate content)
+  password: string; // This should ideally be omitted or hashed in production
+  role: UserRole; // Use the UserRole type here
+  name: string;
 }
 
 interface UserContextType {
@@ -37,36 +36,29 @@ const sampleUsers: Record<string, User> = {
     id: 'admin',
     name: 'Club Admin',
     email: 'admin@huntclub.com',
-    role: 'admin',
-    clubMemberships: ['club1', 'club2'],
-    isClubAdmin: true
+    password: 'admin123', // Example password
+    role: 'admin'
   },
   'hunter1': {
     id: 'hunter1',
     name: 'John Doe',
     email: 'john@example.com',
-    role: 'hunter',
-    clubMemberships: ['club1']
+    password: 'hunter123', // Example password
+    role: 'hunter'
   },
   'hunter2': {
     id: 'hunter2',
     name: 'Jane Smith',
     email: 'jane@example.com',
-    role: 'hunter',
-    clubMemberships: ['club1', 'club2']
+    password: 'hunter456', // Example password
+    role: 'hunter'
   },
   'hunter3': {
     id: 'hunter3',
     name: 'Mike Johnson',
     email: 'mike@example.com',
-    role: 'hunter',
-    clubMemberships: ['club2']
-  },
-  'viewer': {
-    id: 'viewer',
-    name: 'Guest User',
-    email: 'guest@example.com',
-    role: 'viewer'
+    password: 'hunter789', // Example password
+    role: 'hunter'
   }
 };
 
@@ -121,8 +113,13 @@ export const UserProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
 export const useUser = () => {
   const context = useContext(UserContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useUser must be used within a UserProvider');
   }
   return context;
+};
+
+// Example of setUser usage
+const setUser = (user: User | null) => {
+  // Ensure the user object matches the User interface
 };

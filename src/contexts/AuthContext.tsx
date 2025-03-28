@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { useUser } from './UserContext';
 import { useNavigate } from 'react-router-dom';
+import { UserRole } from './UserContext'; // Import UserRole type
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -16,14 +17,14 @@ const sampleUsers = {
     id: 'admin',
     email: 'admin@wildpursuit.net',
     password: 'wildpursuit123', // Replace with hashed passwords in production
-    role: 'admin',
+    role: 'admin' as UserRole, // Explicitly cast to UserRole
     name: 'Admin User',
   },
   hunter: {
     id: 'hunter',
     email: 'hunter@wildpursuit.net',
     password: 'wildpursuit123', // Replace with hashed passwords in production
-    role: 'hunter',
+    role: 'hunter' as UserRole, // Explicitly cast to UserRole
     name: 'Hunter User',
   },
 };
