@@ -1,0 +1,195 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  onAuthStateChanged,
+} from "firebase/auth";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  doc,
+  deleteDoc,
+  getFirestore,
+} from "firebase/firestore";
+import { HuntArea, Marker } from './types/types';
+
+const firebaseConfig = {
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID,
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app); // Initialize Firestore
+const provider = new GoogleAuthProvider();
+
+// Google Sign-In
+export const signInWithGoogle = async () => {
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    return user;
+  } catch (error) {
+    console.error("Google Sign-In Error:", error);
+    return null;
+  }
+};
+
+// Email/Password Sign-Up
+export const signUpWithEmail = async (email: string, password: string) => {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error("Sign-Up Error:", error);
+    return null;
+  }
+};
+
+// Email/Password Sign-In
+export const signInWithEmail = async (email: string, password: string) => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    return userCredential.user;
+  } catch (error) {
+    console.error("Sign-In Error:", error);
+    return null;
+  }
+};
+
+// Sign Out
+export const signOutUser = async () => {
+  try {
+    await signOut(auth);
+  } catch (error) {
+    console.error("Sign-Out Error:", error);
+  }
+};
+
+// Auth State Listener
+export const onAuthStateChangedListener = (callback: (user: any) => void) => {
+  return onAuthStateChanged(auth, callback); // Return the unsubscribe function
+};
+
+// Add a new hunt area
+export const addHuntAreaToFirestore = async (huntArea: any) => {
+  try {
+    const docRef = await addDoc(collection(db, "huntAreas"), huntArea);
+    return docRef.id; // Return the ID of the new hunt area
+  } catch (error) {
+    console.error("Error adding hunt area:", error);
+    throw error;
+  }
+};
+
+// Add a new marker to Firestore
+export const addMarkerToFirestore = async (marker: any) => {
+  try {
+    const docRef = await addDoc(collection(db, "markers"), marker);
+    return docRef.id; // Return the ID of the new marker
+  } catch (error) {
+    console.error("Error adding marker:", error);
+    throw error;
+  }
+};
+
+// Fetch hunt areas from Firestore
+export const getHuntAreasFromFirestore = async (): Promise<HuntArea[]> => {
+  try {
+    const querySnapshot = await getDocs(collection(db, "huntAreas"));
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || "Unnamed Area",
+        notes: data.notes || "",
+        markers: data.markers || [],
+        bounds: data.bounds || [0, 0, 0, 0],
+        lastUpdated: data.lastUpdated || new Date().toISOString(),
+        shared: data.shared || false,
+        sharedWith: data.sharedWith || [],
+        createdBy: data.createdBy || "",
+        clubId: data.clubId || "",
+      } as HuntArea;
+    });
+  } catch (error) {
+    console.error("Error fetching hunt areas:", error);
+    throw error;
+  }
+};
+
+// Get markers for a specific hunt area
+export const getMarkersForHuntArea = async (huntAreaId: string) => {
+  try {
+    const q = query(collection(db, "markers"), where("huntAreaId", "==", huntAreaId));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    }));
+  } catch (error) {
+    console.error("Error fetching markers:", error);
+    throw error;
+  }
+};
+
+// Update a hunt area
+export const updateHuntAreaInFirestore = async (id: string, updatedFields: any) => {
+  try {
+    const docRef = doc(db, "huntAreas", id);
+    await updateDoc(docRef, updatedFields);
+  } catch (error) {
+    console.error("Error updating hunt area:", error);
+    throw error;
+  }
+};
+
+// Update a marker
+export const updateMarkerInFirestore = async (id: string, updatedFields: any) => {
+  try {
+    const docRef = doc(db, "markers", id);
+    await updateDoc(docRef, updatedFields);
+  } catch (error) {
+    console.error("Error updating marker:", error);
+    throw error;
+  }
+};
+
+// Delete a hunt area
+export const deleteHuntAreaFromFirestore = async (id: string) => {
+  try {
+    const docRef = doc(db, "huntAreas", id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error("Error deleting hunt area:", error);
+    throw error;
+  }
+};
+
+// Delete a marker
+export const deleteMarkerFromFirestore = async (id: string) => {
+  try {
+    const docRef = doc(db, "markers", id);
+    await deleteDoc(docRef);
+  } catch (error) {
+    console.error("Error deleting marker:", error);
+    throw error;
+  }
+};
+
+export { auth, db, provider };

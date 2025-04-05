@@ -1,38 +1,21 @@
-import React, { createContext, useState, useContext, ReactNode, useRef, useMemo } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useMemo, useEffect, useCallback } from 'react';
+import {
+  addHuntAreaToFirestore,
+  addMarkerToFirestore,
+  getMarkersForHuntArea,
+  updateMarkerInFirestore,
+  deleteMarkerFromFirestore,
+  db,
+} from "../firebase";
+import { HuntArea, Marker, MarkerType } from '../types/types';
+import { collection, getDocs } from "firebase/firestore";
 
 // Types
-export type MarkerType = 'tree-stand' | 'blind' | 'food-plot' | 'feeder' | 'parking' | 'camera';
-
-export interface Marker {
-  id: string;
-  latitude: number;
-  longitude: number;
-  type: MarkerType;
-  name: string;
-  notes?: string;
-  createdBy?: string;
-  inUse?: boolean;
-  assignedTo?: string | null;
-  dateCreated?: string;
-}
-
-export interface HuntArea {
-  id: string;
-  name: string;
-  notes?: string;
-  markers: Marker[];
-  bounds?: [number, number, number, number]; // [minLng, minLat, maxLng, maxLat]
-  lastUpdated: string;
-  shared?: boolean;
-  sharedWith?: string[];
-  createdBy?: string;
-  clubId?: string;
-}
 
 interface MapContextType {
   currentHuntArea: HuntArea | null;
   huntAreas: HuntArea[];
-  markers: Marker[];
+  markers: any[];
   selectedMarkerId: string | null;
   mapLocation: { latitude: number; longitude: number; zoom: number };
   setCurrentHuntArea: (area: HuntArea | null) => void;
@@ -40,7 +23,7 @@ interface MapContextType {
   addHuntArea: (area: HuntArea) => void;
   updateHuntArea: (id: string, area: Partial<HuntArea>) => void;
   deleteHuntArea: (id: string) => void;
-  setMarkers: (markers: Marker[]) => void;
+  setMarkers: (markers: any[]) => void;
   addMarker: (marker: Marker) => void;
   updateMarker: (id: string, marker: Partial<Marker>) => void;
   deleteMarker: (id: string) => void;
@@ -49,9 +32,12 @@ interface MapContextType {
   shareHuntArea: (id: string, userIds: string[]) => void;
   getMarkersForUser: (userId: string) => Marker[];
   getAvailableMarkers: (type?: MarkerType) => Marker[];
-  getCurrentMapBounds: () => [number, number, number, number]; // New method
-  getMapBounds: () => { minLongitude: number; minLatitude: number; maxLongitude: number; maxLatitude: number }; // Add this function
-  createDefaultHuntArea: () => HuntArea; // Optional utility
+  getCurrentMapBounds: () => [number, number, number, number];
+  getMapBounds: () => { minLongitude: number; minLatitude: number; maxLongitude: number; maxLatitude: number };
+  createDefaultHuntArea: () => HuntArea;
+ 
+  getHuntAreasFromFirestore: () => Promise<HuntArea[]>; // Update the return type
+  addHuntAreaToFirestore: (area: HuntArea) => Promise<string>; // Add this
 }
 
 const defaultMapContext: MapContextType = {
@@ -60,22 +46,46 @@ const defaultMapContext: MapContextType = {
   markers: [],
   selectedMarkerId: null,
   mapLocation: { latitude: 34.7195, longitude: -84.5478, zoom: 15 }, // Default to a location
-  setCurrentHuntArea: () => {},
-  setHuntAreas: () => {},
-  addHuntArea: () => {},
-  updateHuntArea: () => {},
-  deleteHuntArea: () => {},
-  setMarkers: () => {},
-  addMarker: () => {},
-  updateMarker: () => {},
-  deleteMarker: () => {},
-  setSelectedMarkerId: () => {},
-  setMapLocation: () => {},
-  shareHuntArea: () => {},
+  setCurrentHuntArea: (area: HuntArea | null) => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  setHuntAreas: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  addHuntArea: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  updateHuntArea: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  deleteHuntArea: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  setMarkers: () => {
+    console.warn('setMarkers not implemented');
+  },
+  addMarker: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  updateMarker: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  deleteMarker: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  setSelectedMarkerId: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  setMapLocation: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
+  shareHuntArea: () => {
+    console.warn('not implemented in defaultMapContext');
+  },
   getMarkersForUser: () => [],
   getAvailableMarkers: () => [],
-  getCurrentMapBounds: () => [0, 0, 0, 0], // New method
-  getMapBounds: () => ({ minLongitude: 0, minLatitude: 0, maxLongitude: 0, maxLatitude: 0 }), // Add this function
+  getCurrentMapBounds: () => [0, 0, 0, 0],
+  getMapBounds: () => ({ minLongitude: 0, minLatitude: 0, maxLongitude: 0, maxLatitude: 0 }),
   createDefaultHuntArea: () => ({
     id: '',
     name: '',
@@ -87,7 +97,15 @@ const defaultMapContext: MapContextType = {
     sharedWith: [],
     createdBy: '',
     clubId: '',
-  }), // Optional utility
+  }),
+  getHuntAreasFromFirestore: async () => {
+    console.warn('not implemented in defaultMapContext');
+    return Promise.resolve([]);
+  },
+  addHuntAreaToFirestore: async () => {
+    console.warn('not implemented in defaultMapContext');
+    return '';
+  },
 };
 
 const MapContext = createContext<MapContextType>(defaultMapContext);
@@ -96,70 +114,8 @@ export const useMap = () => useContext(MapContext);
 
 export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentHuntArea, setCurrentHuntArea] = useState<HuntArea | null>(null);
-  const [huntAreas, setHuntAreas] = useState<HuntArea[]>([
-    {
-      id: '1',
-      name: 'TEST',
-      notes: 'Sample hunt area',
-      markers: [],
-      lastUpdated: 'Mar 13, 2025',
-      createdBy: 'admin1',
-      clubId: 'club1',
-    },
-  ]);
-
-  // Sample markers for the demo
-  const [markers, setMarkers] = useState<Marker[]>([
-    {
-      id: '1',
-      latitude: 34.7195,
-      longitude: -84.5478,
-      type: 'tree-stand',
-      name: 'North Ridge Stand',
-      notes: 'Good visibility to the east',
-      createdBy: 'admin1',
-      inUse: false,
-      assignedTo: null,
-      dateCreated: 'Mar 14, 2025',
-    },
-    {
-      id: '2',
-      latitude: 34.7199,
-      longitude: -84.5472,
-      type: 'blind',
-      name: 'Creek Blind',
-      notes: 'Near water source',
-      createdBy: 'admin1',
-      inUse: true,
-      assignedTo: 'hunter1',
-      dateCreated: 'Mar 15, 2025',
-    },
-    {
-      id: '3',
-      latitude: 34.7190,
-      longitude: -84.5469,
-      type: 'camera',
-      name: 'East Trail Camera',
-      notes: 'Facing food plot',
-      createdBy: 'admin1',
-      inUse: false,
-      assignedTo: null,
-      dateCreated: 'Mar 12, 2025',
-    },
-    {
-      id: '4',
-      latitude: 34.7187,
-      longitude: -84.5482,
-      type: 'feeder',
-      name: 'South Feeder',
-      notes: 'Corn feeder',
-      createdBy: 'admin1',
-      inUse: false,
-      assignedTo: null,
-      dateCreated: 'Mar 10, 2025',
-    }
-  ]);
-
+  const [huntAreas, setHuntAreas] = useState<HuntArea[]>([]);
+  const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [mapLocationState, setMapLocationState] = useState({
     latitude: 34.7195,
@@ -169,8 +125,54 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const mapLocationRef = useRef(mapLocationState);
 
-  const addHuntArea = (area: HuntArea) => {
-    setHuntAreas((prevHuntAreas) => [...prevHuntAreas, area]);
+  // Fetch hunt areas from Firestore
+  useEffect(() => {
+    const fetchHuntAreas = async () => {
+      try {
+        const areas = await getHuntAreasFromFirestore();
+        setHuntAreas(areas); // The data now matches the HuntArea type
+      } catch (error) {
+        console.error("Error fetching hunt areas:", error);
+      }
+    };
+
+    fetchHuntAreas();
+  }, []);
+
+  // Fetch markers for the current hunt area
+  useEffect(() => {
+    if (!currentHuntArea) return;
+
+    const fetchMarkers = async () => {
+      try {
+        const areaMarkers = await getMarkersForHuntArea(currentHuntArea.id);
+        setMarkers(areaMarkers.map((marker: Partial<Marker>) => ({
+          id: marker.id || '',
+          latitude: marker.latitude || 0,
+          longitude: marker.longitude || 0,
+          type: marker.type || 'tree-stand',
+          name: marker.name || 'Unnamed Marker',
+          notes: marker.notes || '',
+          createdBy: marker.createdBy || '',
+          inUse: marker.inUse || false,
+          assignedTo: marker.assignedTo || null,
+          dateCreated: marker.dateCreated || new Date().toISOString(),
+        })));
+      } catch (error) {
+        console.error("Error fetching markers:", error);
+      }
+    };
+
+    fetchMarkers();
+  }, [currentHuntArea]);
+
+  const addHuntArea = async (area: HuntArea) => {
+    try {
+      const id = await addHuntAreaToFirestore(area);
+      setHuntAreas((prev) => [...prev, { ...area, id }]);
+    } catch (error) {
+      console.error("Error adding hunt area:", error);
+    }
   };
 
   const updateHuntArea = (id: string, updatedFields: Partial<HuntArea>) => {
@@ -189,20 +191,32 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const addMarker = (marker: Marker) => {
-    setMarkers([...markers, marker]);
+  const addMarker = async (marker: Marker) => {
+    try {
+      const id = await addMarkerToFirestore(marker);
+      setMarkers((prev) => [...prev, { ...marker, id }]);
+    } catch (error) {
+      console.error("Error adding marker:", error);
+    }
   };
 
-  const updateMarker = (id: string, updatedFields: Partial<Marker>) => {
-    setMarkers(
-      markers.map((marker) => (marker.id === id ? { ...marker, ...updatedFields } : marker))
-    );
+  const updateMarker = async (id: string, updatedFields: Partial<Marker>) => {
+    try {
+      await updateMarkerInFirestore(id, updatedFields);
+      setMarkers((prev) =>
+        prev.map((marker) => (marker.id === id ? { ...marker, ...updatedFields } : marker))
+      );
+    } catch (error) {
+      console.error("Error updating marker:", error);
+    }
   };
 
-  const deleteMarker = (id: string) => {
-    setMarkers(markers.filter((marker) => marker.id !== id));
-    if (selectedMarkerId === id) {
-      setSelectedMarkerId(null);
+  const deleteMarker = async (id: string) => {
+    try {
+      await deleteMarkerFromFirestore(id);
+      setMarkers((prev) => prev.filter((marker) => marker.id !== id));
+    } catch (error) {
+      console.error("Error deleting marker:", error);
     }
   };
 
@@ -222,9 +236,9 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const getMarkersForUser = (userId: string) => {
     return markers.filter(marker =>
-      marker.assignedTo === userId || // Assigned directly to the user
-      marker.createdBy === userId || // Created by the user
-      !marker.inUse // Available to everyone if not in use
+      marker.assignedTo === userId ||
+      marker.createdBy === userId ||
+      !marker.inUse
     );
   };
 
@@ -241,8 +255,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const getCurrentMapBounds = (): [number, number, number, number] => {
     const { latitude, longitude, zoom } = mapLocationState;
   
-    // Example: Calculate bounds based on zoom level (adjust as needed)
-    const delta = 0.01 / zoom; // Adjust delta based on zoom level
+    const delta = 0.01 / zoom;
     const minLng = longitude - delta;
     const minLat = latitude - delta;
     const maxLng = longitude + delta;
@@ -254,8 +267,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const getMapBounds = (): { minLongitude: number; minLatitude: number; maxLongitude: number; maxLatitude: number } => {
     const { latitude, longitude, zoom } = mapLocationState;
   
-    // Example: Calculate bounds based on zoom level (adjust delta as needed)
-    const delta = 0.01 / zoom; // Adjust delta based on zoom level
+    const delta = 0.01 / zoom;
     const minLongitude = longitude - delta;
     const minLatitude = latitude - delta;
     const maxLongitude = longitude + delta;
@@ -268,7 +280,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const bounds = getCurrentMapBounds();
   
     return {
-      id: Date.now().toString(), // Generate a unique ID
+      id: Date.now().toString(),
       name: 'New Hunt Area',
       notes: '',
       markers: [],
@@ -276,20 +288,21 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       lastUpdated: new Date().toISOString(),
       shared: false,
       sharedWith: [],
-      createdBy: 'admin', // Replace with the current user's ID
-      clubId: 'club1', // Replace with the current club ID
+      createdBy: 'admin',
+      clubId: 'club1',
     };
   };
 
   const setMapLocation = (location: { latitude: number; longitude: number; zoom: number }) => {
-    mapLocationRef.current = location; // Update the ref
-    setMapLocationState(location); // Update the state only when necessary
+    mapLocationRef.current = location;
+    setMapLocationState(location);
   };
 
   const contextValue = useMemo(() => ({
+    markers,
+    setMarkers,
     currentHuntArea,
     huntAreas,
-    markers,
     selectedMarkerId,
     mapLocation: mapLocationState,
     setCurrentHuntArea,
@@ -297,7 +310,6 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addHuntArea,
     updateHuntArea,
     deleteHuntArea,
-    setMarkers,
     addMarker,
     updateMarker,
     deleteMarker,
@@ -309,10 +321,13 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     getMapBounds,
     getCurrentMapBounds,
     createDefaultHuntArea,
+    getHuntAreasFromFirestore,
+    addHuntAreaToFirestore,
+    getMarkersForHuntArea, // Add this
   }), [
+    markers,
     currentHuntArea,
     huntAreas,
-    markers,
     selectedMarkerId,
     mapLocationState,
   ]);
@@ -322,4 +337,28 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       {children}
     </MapContext.Provider>
   );
+};
+
+export const getHuntAreasFromFirestore = async (): Promise<HuntArea[]> => {
+  try {
+    const querySnapshot = await getDocs(collection(db, "huntAreas"));
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || "Unnamed Area", // Default to "Unnamed Area" if name is missing
+        notes: data.notes || "", // Default to an empty string if notes are missing
+        markers: data.markers || [], // Default to an empty array if markers are missing
+        bounds: data.bounds || [0, 0, 0, 0], // Default to [0, 0, 0, 0] if bounds are missing
+        lastUpdated: data.lastUpdated || new Date().toISOString(), // Default to the current timestamp
+        shared: data.shared || false, // Default to false if shared is missing
+        sharedWith: data.sharedWith || [], // Default to an empty array if sharedWith is missing
+        createdBy: data.createdBy || "", // Default to an empty string if createdBy is missing
+        clubId: data.clubId || "", // Default to an empty string if clubId is missing
+      } as HuntArea;
+    });
+  } catch (error) {
+    console.error("Error fetching hunt areas:", error);
+    throw error;
+  }
 };

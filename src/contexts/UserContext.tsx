@@ -1,15 +1,16 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { onAuthStateChangedListener } from '../firebase'; // Import the wrapper function
+import { User as FirebaseUser } from 'firebase/auth'; // Import Firebase User type
 
-export type UserRole = 'admin' | 'hunter'; // Define the allowed roles
+export type UserRole = 'admin' | 'hunter';
 
 export interface User {
   id: string;
   email: string;
-  password: string; // This should ideally be omitted or hashed in production
-  role: UserRole; // Use the UserRole type here
+  role: UserRole;
   name: string;
-  clubMemberships?: string[]; // Optional array of club IDs the user is a member of
-  subscription?: string; // Optional subscription type (e.g., 'Pro', 'Basic')
+  clubMemberships?: string[];
+  subscription?: string;
 }
 
 interface UserContextType {
@@ -19,9 +20,9 @@ interface UserContextType {
   isAdmin: boolean;
   allUsers: Record<string, User>;
   clubs: Record<string, ClubData>;
-  updateUser: (updatedUser: Partial<User>) => void; // Method to update user details
-  updatePreferences: (preferences: Record<string, any>) => void; // Method to update user preferences
-  logout: () => void; // Method to log out the user
+  updateUser: (updatedUser: Partial<User>) => void;
+  updatePreferences: (preferences: Record<string, any>) => void;
+  logout: () => void;
 }
 
 export interface ClubData {
@@ -35,71 +36,34 @@ export interface ClubData {
   imageUrl?: string;
 }
 
-// Sample users
-const sampleUsers: Record<string, User> = {
-  'admin': {
-    id: 'admin',
-    name: 'Club Admin',
-    email: 'admin@huntclub.com',
-    password: 'admin123', // Example password
-    role: 'admin'
-  },
-  'hunter1': {
-    id: 'hunter1',
-    name: 'John Doe',
-    email: 'john@example.com',
-    password: 'hunter123', // Example password
-    role: 'hunter'
-  },
-  'hunter2': {
-    id: 'hunter2',
-    name: 'Jane Smith',
-    email: 'jane@example.com',
-    password: 'hunter456', // Example password
-    role: 'hunter'
-  },
-  'hunter3': {
-    id: 'hunter3',
-    name: 'Mike Johnson',
-    email: 'mike@example.com',
-    password: 'hunter789', // Example password
-    role: 'hunter'
-  }
-};
-
-// Sample clubs
-const sampleClubs: Record<string, ClubData> = {
-  'club1': {
-    id: 'club1',
-    name: 'Big Deer Hunting Club',
-    description: 'Premier hunting club with exclusive access to prime whitetail land across 1,200 acres.',
-    location: 'Jonesville, GA',
-    memberIds: ['admin', 'hunter1', 'hunter2'],
-    adminIds: ['admin'],
-    dateCreated: 'Jan 12, 2024',
-    imageUrl: 'https://same-assets.com/10c27f66-f29e-44a5-8ba3-a6dbf30b9d24.jpg'
-  },
-  'club2': {
-    id: 'club2',
-    name: 'Oak Ridge Outfitters',
-    description: 'Family-owned hunting property providing guided hunts and comfortable lodging.',
-    location: 'Springfield, MO',
-    memberIds: ['admin', 'hunter2', 'hunter3'],
-    adminIds: ['admin', 'hunter2'],
-    dateCreated: 'Mar 3, 2024',
-    imageUrl: 'https://same-assets.com/0a5ef9d3-9070-4d8d-b04b-9c9a9ea0008b.jpg'
-  }
-};
-
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(sampleUsers.admin);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Synchronize with Firebase authentication state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChangedListener((firebaseUser) => {
+      if (firebaseUser) {
+        const mappedUser: User = {
+          id: firebaseUser.uid,
+          email: firebaseUser.email || '',
+          name: firebaseUser.displayName || 'Unknown User',
+          role: 'hunter', // Default role
+          clubMemberships: [], // Default memberships
+          subscription: 'Free', // Default subscription
+        };
+        setUser(mappedUser);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => unsubscribe(); // Cleanup listener on unmount
+  }, []);
 
   const switchUser = (userId: string) => {
-    if (sampleUsers[userId]) {
-      setUser(sampleUsers[userId]);
-    }
+    console.warn('switchUser is not applicable when using Firebase authentication.');
   };
 
   const updateUser = (updatedUser: Partial<User>) => {
@@ -108,13 +72,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updatePreferences = (preferences: Record<string, any>) => {
     console.log('Updating preferences:', preferences);
-    // Add logic to update preferences (e.g., API call)
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('isAuthenticated');
-    localStorage.removeItem('user');
   };
 
   return (
@@ -124,8 +85,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser,
         switchUser,
         isAdmin: user?.role === 'admin',
-        allUsers: sampleUsers,
-        clubs: sampleClubs,
+        allUsers: {}, // Not applicable when using Firebase
+        clubs: {}, // Replace with actual club data if needed
         updateUser,
         updatePreferences,
         logout,
@@ -142,9 +103,4 @@ export const useUser = () => {
     throw new Error('useUser must be used within a UserProvider');
   }
   return context;
-};
-
-// Example of setUser usage
-const setUser = (user: User | null) => {
-  // Ensure the user object matches the User interface
 };

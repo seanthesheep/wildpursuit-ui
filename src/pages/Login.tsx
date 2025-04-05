@@ -3,19 +3,27 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
 const Login: React.FC = () => {
-  const { login } = useAuth();
+  const { loginWithGoogle, loginWithEmail } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleLogin = () => {
-    const success = login(email, password);
-    if (!success) {
-      setError('Invalid email or password');
-    } else {
-      setError('');
+  const handleEmailLogin = async () => {
+    try {
+      await loginWithEmail(email, password);
       navigate('/'); // Redirect to the home page after successful login
+    } catch {
+      setError('Invalid email or password');
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    try {
+      await loginWithGoogle();
+      navigate('/'); // Redirect to the home page after successful login
+    } catch {
+      setError('Google login failed');
     }
   };
 
@@ -24,7 +32,7 @@ const Login: React.FC = () => {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          handleLogin();
+          handleEmailLogin();
         }}
         className="bg-white p-6 rounded shadow-md w-full max-w-sm"
       >
@@ -55,6 +63,13 @@ const Login: React.FC = () => {
           className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 transition"
         >
           Login
+        </button>
+        <button
+          type="button"
+          onClick={handleGoogleLogin}
+          className="w-full bg-blue-600 text-white py-2 rounded mt-4 hover:bg-blue-700 transition"
+        >
+          Login with Google
         </button>
       </form>
     </div>
