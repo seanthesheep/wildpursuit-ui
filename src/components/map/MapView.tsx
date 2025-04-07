@@ -9,11 +9,11 @@ import CustomMarkerIcon from './CustomMarkerIcon';
 import CameraMarkerPopup from './CameraMarkerPopup';
 import MarkerDetailsPanel from './MarkerDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
-import { HuntArea } from '../../types/types';
-import { addMarkerToFirestore } from '../../firebase';
+import { HuntArea, Marker, MarkerType } from '../../types/types';
+import { addMarkerToFirestore, updateMarkerInFirestore } from '../../firebase';
 
 // Mapbox access token
-mapboxgl.accessToken = 'pk.eyJ1Ijoic3N1bGxpdmFuZGV2IiwiYSI6ImNtOGN6azhnejBqZWkybHBzbXBvc3RqOTYifQ.jqD31E5Hd0xtu16Oy45uIA';
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 interface ViewState {
   latitude: number;
@@ -71,7 +71,7 @@ const MapView: React.FC = () => {
   const [showHuntAreaPopup, setShowHuntAreaPopup] = useState(false);
   const [clickedPoint, setClickedPoint] = useState<{ longitude: number; latitude: number } | null>(null);
   const [addingMarker, setAddingMarker] = useState(false);
-  const [selectedMarkerType, setSelectedMarkerType] = useState('tree-stand');
+  const [selectedMarkerType, setSelectedMarkerType] = useState<MarkerType>('tree-stand');
   const [newMarkerName, setNewMarkerName] = useState('');
   const [newMarkerNotes, setNewMarkerNotes] = useState('');
   const [markerDetails, setMarkerDetails] = useState<any>(null);
@@ -276,23 +276,23 @@ const MapView: React.FC = () => {
       return;
     }
 
-    const newMarker = {
+    const newMarker: Marker = {
       id: uuidv4(),
-      latitude: clickedPoint.latitude,
-      longitude: clickedPoint.longitude,
+      latitude: clickedPoint?.latitude || 0,
+      longitude: clickedPoint?.longitude || 0,
       type: selectedMarkerType,
       name: newMarkerName,
       notes: newMarkerNotes,
-      createdBy: user?.id,
+      createdBy: user?.id || '',
       inUse: false,
       assignedTo: null,
       dateCreated: new Date().toISOString(),
-      huntAreaId: currentHuntArea.id, // Associate marker with the current hunt area
+      huntAreaId: currentHuntArea?.id || '',
     };
 
     try {
-      const id = await addMarkerToFirestore(newMarker); // Save to Firestore
-      setMarkers((prev) => [...prev, { ...newMarker, id }]); // Update local state
+      const id = await addMarkerToFirestore(newMarker);
+      setMarkers(prev => [...prev, { ...newMarker, id }] as Marker[]);
       setAddingMarker(false);
       setClickedPoint(null);
       setNewMarkerName('');
@@ -339,6 +339,22 @@ const MapView: React.FC = () => {
           inUse: !!hunterId
         });
       }
+    }
+  };
+
+  // Update marker function
+  const handleUpdateMarker = async (id: string, updatedFields: Partial<Marker>) => {
+    try {
+      await updateMarkerInFirestore(id, updatedFields);
+      setMarkers(prev => 
+        prev.map(marker => 
+          marker.id === id
+            ? { ...marker, ...updatedFields } as Marker
+            : marker
+        )
+      );
+    } catch (error) {
+      console.error("Error updating marker:", error);
     }
   };
 
@@ -456,7 +472,7 @@ const MapView: React.FC = () => {
               <select
                 className="w-full p-2 border border-gray-300 rounded-md"
                 value={selectedMarkerType}
-                onChange={(e) => setSelectedMarkerType(e.target.value)}
+                onChange={(e) => setSelectedMarkerType(e.target.value as MarkerType)}
               >
                 {MarkerTypes.map((type) => (
                   <option key={type.id} value={type.id}>

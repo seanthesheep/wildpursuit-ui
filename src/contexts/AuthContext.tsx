@@ -23,7 +23,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChangedListener((user) => {
-      setIsAuthenticated(!!user);
+      if (user) {
+        setIsAuthenticated(true);
+      }
       setIsLoading(false);
     });
 
@@ -32,17 +34,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async () => {
     const user = await signInWithGoogle();
-    if (user) setIsAuthenticated(true);
+    if (user) {
+      setIsAuthenticated(true);
+    }
   };
 
   const loginWithEmail = async (email: string, password: string) => {
     const user = await signInWithEmail(email, password);
-    if (user) setIsAuthenticated(true);
+    if (user) {
+      setIsAuthenticated(true);
+    }
   };
 
-  const signUpWithEmail = async (email: string, password: string) => {
-    const user = await signUpWithEmail(email, password);
-    if (user) setIsAuthenticated(true);
+
+  const handleSignUpWithEmail = async (email: string, password: string) => {
+    const user = await signUpWithEmail(email, password); // Use the imported function
+    if (user) {
+      setIsAuthenticated(true);
+    }
   };
 
   const logout = async () => {
@@ -55,7 +64,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, loginWithGoogle, loginWithEmail, signUpWithEmail, logout }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        loginWithGoogle,
+        loginWithEmail,
+        signUpWithEmail: handleSignUpWithEmail, 
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

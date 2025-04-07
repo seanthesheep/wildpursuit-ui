@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useRef, useMemo, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useMemo, useEffect, useCallback, Dispatch, SetStateAction } from 'react';
 import {
   addHuntAreaToFirestore,
   addMarkerToFirestore,
@@ -8,6 +8,7 @@ import {
   db,
 } from "../firebase";
 import { HuntArea, Marker, MarkerType } from '../types/types';
+export type { Marker, MarkerType } from '../types/types';
 import { collection, getDocs } from "firebase/firestore";
 
 // Types
@@ -15,7 +16,7 @@ import { collection, getDocs } from "firebase/firestore";
 interface MapContextType {
   currentHuntArea: HuntArea | null;
   huntAreas: HuntArea[];
-  markers: any[];
+  markers: Marker[];
   selectedMarkerId: string | null;
   mapLocation: { latitude: number; longitude: number; zoom: number };
   setCurrentHuntArea: (area: HuntArea | null) => void;
@@ -23,7 +24,7 @@ interface MapContextType {
   addHuntArea: (area: HuntArea) => void;
   updateHuntArea: (id: string, area: Partial<HuntArea>) => void;
   deleteHuntArea: (id: string) => void;
-  setMarkers: (markers: any[]) => void;
+  setMarkers: Dispatch<SetStateAction<Marker[]>>;
   addMarker: (marker: Marker) => void;
   updateMarker: (id: string, marker: Partial<Marker>) => void;
   deleteMarker: (id: string) => void;
@@ -35,9 +36,9 @@ interface MapContextType {
   getCurrentMapBounds: () => [number, number, number, number];
   getMapBounds: () => { minLongitude: number; minLatitude: number; maxLongitude: number; maxLatitude: number };
   createDefaultHuntArea: () => HuntArea;
- 
-  getHuntAreasFromFirestore: () => Promise<HuntArea[]>; // Update the return type
-  addHuntAreaToFirestore: (area: HuntArea) => Promise<string>; // Add this
+  getHuntAreasFromFirestore: () => Promise<HuntArea[]>;
+  addHuntAreaToFirestore: (area: HuntArea) => Promise<string>;
+  getMarkersForHuntArea: (huntAreaId: string) => Promise<Marker[]>;
 }
 
 const defaultMapContext: MapContextType = {
@@ -45,7 +46,7 @@ const defaultMapContext: MapContextType = {
   huntAreas: [],
   markers: [],
   selectedMarkerId: null,
-  mapLocation: { latitude: 34.7195, longitude: -84.5478, zoom: 15 }, // Default to a location
+  mapLocation: { latitude: 34.7195, longitude: -84.5478, zoom: 15 },
   setCurrentHuntArea: (area: HuntArea | null) => {
     console.warn('not implemented in defaultMapContext');
   },
@@ -106,6 +107,10 @@ const defaultMapContext: MapContextType = {
     console.warn('not implemented in defaultMapContext');
     return '';
   },
+  getMarkersForHuntArea: async () => {
+    console.warn('not implemented in defaultMapContext');
+    return Promise.resolve([]);
+  },
 };
 
 const MapContext = createContext<MapContextType>(defaultMapContext);
@@ -146,20 +151,23 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchMarkers = async () => {
       try {
         const areaMarkers = await getMarkersForHuntArea(currentHuntArea.id);
-        setMarkers(areaMarkers.map((marker: Partial<Marker>) => ({
-          id: marker.id || '',
-          latitude: marker.latitude || 0,
-          longitude: marker.longitude || 0,
-          type: marker.type || 'tree-stand',
-          name: marker.name || 'Unnamed Marker',
-          notes: marker.notes || '',
-          createdBy: marker.createdBy || '',
-          inUse: marker.inUse || false,
-          assignedTo: marker.assignedTo || null,
-          dateCreated: marker.dateCreated || new Date().toISOString(),
-        })));
+        setMarkers(
+          areaMarkers.map((marker: Partial<Marker>) => ({
+            id: marker.id || '',
+            latitude: marker.latitude || 0,
+            longitude: marker.longitude || 0,
+            type: marker.type || 'tree-stand',
+            name: marker.name || 'Unnamed Marker',
+            notes: marker.notes || '',
+            createdBy: marker.createdBy || '',
+            inUse: marker.inUse || false,
+            assignedTo: marker.assignedTo || null,
+            dateCreated: marker.dateCreated || new Date().toISOString(),
+            huntAreaId: currentHuntArea.id, // Add huntAreaId here
+          }))
+        );
       } catch (error) {
-        console.error("Error fetching markers:", error);
+        console.error('Error fetching markers:', error);
       }
     };
 
@@ -194,7 +202,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const addMarker = async (marker: Marker) => {
     try {
       const id = await addMarkerToFirestore(marker);
-      setMarkers((prev) => [...prev, { ...marker, id }]);
+      setMarkers((prev: Marker[]) => [...prev, { ...marker, id }]);
     } catch (error) {
       console.error("Error adding marker:", error);
     }
@@ -203,8 +211,20 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const updateMarker = async (id: string, updatedFields: Partial<Marker>) => {
     try {
       await updateMarkerInFirestore(id, updatedFields);
-      setMarkers((prev) =>
-        prev.map((marker) => (marker.id === id ? { ...marker, ...updatedFields } : marker))
+      setMarkers((prev: Marker[]) =>
+        prev.map((marker) =>
+          marker.id === id
+            ? {
+                ...marker,
+                ...updatedFields,
+                latitude: updatedFields.latitude ?? marker.latitude,
+                longitude: updatedFields.longitude ?? marker.longitude,
+                type: updatedFields.type ?? marker.type,
+                name: updatedFields.name ?? marker.name,
+                huntAreaId: updatedFields.huntAreaId ?? marker.huntAreaId,
+              }
+            : marker
+        )
       );
     } catch (error) {
       console.error("Error updating marker:", error);
@@ -323,7 +343,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     createDefaultHuntArea,
     getHuntAreasFromFirestore,
     addHuntAreaToFirestore,
-    getMarkersForHuntArea, // Add this
+    getMarkersForHuntArea,
   }), [
     markers,
     currentHuntArea,

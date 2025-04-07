@@ -6,11 +6,12 @@ export interface Marker {
   longitude: number;
   type: MarkerType;
   name: string;
-  notes?: string;
-  createdBy?: string;
-  inUse?: boolean;
-  assignedTo?: string | null;
-  dateCreated?: string;
+  notes: string;
+  createdBy: string;
+  inUse: boolean;
+  assignedTo: string | null;
+  dateCreated: string;
+  huntAreaId: string;
 }
 
 export interface HuntArea {
