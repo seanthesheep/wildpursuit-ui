@@ -19,8 +19,11 @@ import {
   doc,
   deleteDoc,
   getFirestore,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { HuntArea, Marker } from './types/types';
+import { hashCredentials } from './utils/encryption';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -100,10 +103,12 @@ export const addHuntAreaToFirestore = async (huntArea: any) => {
 // Add a new marker to Firestore
 export const addMarkerToFirestore = async (marker: any) => {
   try {
-    const docRef = await addDoc(collection(db, "markers"), marker);
-    return docRef.id; // Return the ID of the new marker
+    // Use the marker's ID as the document ID
+    const markerRef = doc(db, 'markers', marker.id);
+    await setDoc(markerRef, marker);
+    return marker.id;
   } catch (error) {
-    console.error("Error adding marker:", error);
+    console.error('Error adding marker:', error);
     throw error;
   }
 };
@@ -202,6 +207,40 @@ export const deleteMarkerFromFirestore = async (id: string) => {
     console.error("Error deleting marker:", error);
     throw error;
   }
+};
+
+interface SpypointCredentials {
+  username: string;
+  passwordHash: string;
+  lastSync?: string;
+}
+
+export const saveSpypointCredentials = async (
+  userId: string, 
+  credentials: { username: string; password: string }
+): Promise<void> => {
+  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+  
+  const hashedCredentials: SpypointCredentials = {
+    username: credentials.username,
+    passwordHash: await hashCredentials(credentials.password),
+    lastSync: new Date().toISOString()
+  };
+
+  await setDoc(docRef, hashedCredentials);
+};
+
+export const getSpypointCredentials = async (
+  userId: string
+): Promise<SpypointCredentials | null> => {
+  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+  const docSnap = await getDoc(docRef);
+  
+  if (!docSnap.exists()) {
+    return null;
+  }
+  
+  return docSnap.data() as SpypointCredentials;
 };
 
 export { auth, db, provider };

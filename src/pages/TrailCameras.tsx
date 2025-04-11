@@ -1,80 +1,111 @@
-import React, { useState } from 'react';
-import { useMap } from '../contexts/MapContext';
-import { MapPin, Plus, Camera, Grid, List, Download, Trash, Share2, Edit } from 'react-feather';
-import MapView from '../components/map/MapView';
-import SpypointModal from '../components/modals/SpypointModal';
+import React, { useEffect, useState } from 'react';
+import { MapPin, Plus, Camera, Grid, List } from 'react-feather';
 import { useUser } from '../contexts/UserContext';
+import { useSpypointSync } from '../hooks/useSpypointSync';
+import { db } from '../firebase'; // Firestore instance
+import { collection, getDocs } from 'firebase/firestore';
+import CameraMarkerPopup from '../components/map/CameraMarkerPopup';
+
+interface Marker {
+  id: string;
+  name: string;
+  notes?: string;
+  cameraId?: string; // Associated camera ID
+  type: string; // Marker type (e.g., "camera")
+}
 
 interface CameraPhoto {
   id: string;
-  url: string;
-  date: string;
   cameraId: string;
-  description?: string;
+  userId: string;
+  date: string;
+  smallUrl: string;
+  mediumUrl: string;
+  largeUrl: string;
   tags: string[];
 }
 
-const mockPhotos: CameraPhoto[] = [
-  {
-    id: '1',
-    url: 'https://www.whitetailhabitatsolutions.com/uploads/blog/_blogLargeImage/6145/Screen-Shot-2016-12-13-at-7.25.02-AM.jpg',
-    date: 'Mar 15, 2025 9:45 AM',
-    cameraId: '1',
-    tags: ['buck', '8-point']
-  },
-  {
-    id: '2',
-    url: 'https://deerassociation.com/wp-content/uploads/2022/06/trail-camera-no-bait-lead-760x505.jpg',
-    date: 'Mar 14, 2025 6:22 PM',
-    cameraId: '1',
-    tags: ['doe']
-  },
-  {
-    id: '3',
-    url: 'https://lakedarbonnelife.com/wp-content/uploads/2018/11/screen-shot-2018-07-13-at-11-09-56-pm.png?w=412&h=271',
-    date: 'Mar 13, 2025 5:17 AM',
-    cameraId: '1',
-    tags: ['buck', '10-point']
-  },
-  {
-    id: '4',
-    url: 'https://files.osgnetworks.tv/14/files/2017/11/drinnon_1-.jpg',
-    date: 'Mar 12, 2025 8:30 PM',
-    cameraId: '1',
-    tags: ['doe', 'fawn']
-  },
-];
-
 const TrailCameras: React.FC = () => {
-  const { markers, currentHuntArea } = useMap();
   const { user } = useUser();
+  const [markers, setMarkers] = useState<Marker[]>([]); // State for markers
   const [view, setView] = useState<'grid' | 'list'>('grid');
-  const [selectedPhoto, setSelectedPhoto] = useState<CameraPhoto | null>(null);
-  const [showMapView, setShowMapView] = useState(false);
+  const [photos, setPhotos] = useState<CameraPhoto[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false); // New loading state
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
 
-  // Spypoint connection state
-  const [isSpypointModalOpen, setIsSpypointModalOpen] = useState(false);
-  const [spypointCredentials, setSpypointCredentials] = useState<{ username: string; password: string } | null>(null);
+  const userId = user?.id || 'exampleUserId'; // Replace with actual user ID from context/auth
+  const { syncPhotos, isLoading, lastSync, error } = useSpypointSync();
 
-  // Filter to only show camera markers
-  const cameraMarkers = markers.filter(marker => marker.type === 'camera');
+  // Fetch markers from Firestore
+  useEffect(() => {
+    const fetchMarkers = async () => {
+      try {
+        const markersCollection = collection(db, 'markers');
+        const snapshot = await getDocs(markersCollection);
+        const fetchedMarkers: Marker[] = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as Marker[];
 
-  const openSpypointModal = () => {
-    setIsSpypointModalOpen(true);
-  };
+        console.log('Fetched Markers:', fetchedMarkers); // Debug log
+        setMarkers(fetchedMarkers);
+      } catch (error) {
+        console.error('Error fetching markers:', error);
+      }
+    };
 
-  const closeSpypointModal = () => {
-    setIsSpypointModalOpen(false);
-  };
+    fetchMarkers();
+  }, []);
 
-  const handleSpypointConnect = (username: string, password: string) => {
-    if (username && password) {
-      setSpypointCredentials({ username, password });
-    } else {
-      setSpypointCredentials(null);
+  // Fetch photos for the selected camera
+  useEffect(() => {
+    console.log(`Fetching photos for Camera ID: ${selectedCameraId}`); // Debug log
+
+    if (!selectedCameraId) {
+      setPhotos([]); // Clear photos if no camera is selected
+      return;
     }
-    closeSpypointModal();
-  };
+
+    const fetchPhotos = async () => {
+      setPhotosLoading(true); // Start loading
+      try {
+        const photosCollection = collection(
+          db,
+          'users',
+          userId,
+          'cameras',
+          selectedCameraId,
+          'photos'
+        );
+        const snapshot = await getDocs(photosCollection);
+        const fetchedPhotos: CameraPhoto[] = [];
+
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          fetchedPhotos.push({
+            id: doc.id,
+            cameraId: data.cameraId,
+            userId: data.userId,
+            date: data.date,
+            smallUrl: data.smallUrl,
+            mediumUrl: data.mediumUrl,
+            largeUrl: data.largeUrl,
+            tags: data.tags || [],
+          });
+        });
+
+        console.log(`Fetched Photos:`, fetchedPhotos); // Debug log
+        setPhotos(fetchedPhotos); // Update photos state
+      } catch (error) {
+        console.error('Error fetching photos:', error);
+        setPhotos([]); // Clear photos on error
+      } finally {
+        setPhotosLoading(false); // End loading
+      }
+    };
+
+    fetchPhotos();
+  }, [selectedCameraId, userId]);
 
   return (
     <div className="h-full flex flex-col">
@@ -95,12 +126,33 @@ const TrailCameras: React.FC = () => {
           </button>
           <button
             className="p-2 rounded-md hover:bg-gray-800"
-            onClick={() => setShowMapView(!showMapView)}
+            onClick={() => console.log('Map View')}
           >
             <MapPin size={20} />
           </button>
         </div>
       </div>
+
+      <div className="flex justify-between items-center mb-4 p-4 bg-white border-b border-gray-200">
+        <h1 className="text-xl font-bold">Trail Cameras</h1>
+        <button
+          onClick={syncPhotos}
+          disabled={isLoading}
+          className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:opacity-50"
+        >
+          {isLoading ? 'Syncing...' : 'Sync Photos'}
+        </button>
+      </div>
+      {error && (
+        <div className="text-red-500 mb-4 p-4">
+          Error: {error}
+        </div>
+      )}
+      {lastSync && (
+        <div className="text-gray-500 text-sm mb-4 p-4">
+          Last synced: {lastSync.toLocaleString()}
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Camera Sidebar */}
@@ -113,198 +165,64 @@ const TrailCameras: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto p-2">
-            {cameraMarkers.length === 0 ? (
-              <div className="text-center p-4 text-gray-500">
-                No cameras added yet. Add a camera to get started.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {cameraMarkers.map((camera) => (
-                  <div
-                    key={camera.id}
-                    className="bg-orange-100 p-3 rounded-md flex items-center border-l-4 border-orange-500"
-                  >
-                    <div className="bg-orange-500 text-white rounded-md p-1 mr-2 flex-shrink-0">
-                      <Camera size={16} />
-                    </div>
-                    <div className="flex-1">
-                      <div className="font-semibold">{camera.name}</div>
-                      <div className="text-xs text-gray-500">
-                        {camera.notes || 'No description'}
-                      </div>
-                    </div>
+            {markers.filter(marker => marker.type === 'camera').map((marker) => (
+              <div
+                key={marker.id}
+                className="bg-orange-100 p-3 rounded-md flex items-center border-l-4 border-orange-500 cursor-pointer"
+                onClick={() => {
+                  if (marker.cameraId) {
+                    console.log(`Selected Camera ID: ${marker.cameraId}`); // Debug log
+                    setSelectedCameraId(marker.cameraId); // Fetch all photos for the associated camera
+                  } else {
+                    console.warn(`Marker ${marker.id} has no associated camera.`);
+                    setSelectedCameraId(null); // Clear the selected camera
+                  }
+                }}
+              >
+                <div className="bg-orange-500 text-white rounded-md p-1 mr-2 flex-shrink-0">
+                  <Camera size={16} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold">{marker.name || 'Unnamed Marker'}</div>
+                  <div className="text-xs text-gray-500">
+                    {marker.notes || 'No description'}
                   </div>
-                ))}
+                </div>
+                <CameraMarkerPopup
+                  markerId={marker.id}
+                  userId={userId}
+                  onCameraSelect={(cameraId) => setSelectedCameraId(cameraId)}
+                />
               </div>
-            )}
-          </div>
-
-          <div className="p-4 border-t border-gray-200">
-            <button
-              className="w-full bg-orange-500 text-white py-2 rounded-md flex items-center justify-center"
-              onClick={openSpypointModal}
-            >
-              <Camera size={16} className="mr-2" />
-              {spypointCredentials ? "Manage Spypoint" : "Connect to Spypoint"}
-            </button>
+            ))}
           </div>
         </div>
 
         {/* Main Content Area */}
         <div className="flex-1 bg-gray-100 overflow-hidden">
-          {showMapView ? (
-            <div className="h-full">
-              <MapView />
+          {photosLoading ? ( // Show loading indicator while photos are being fetched
+            <div className="text-center p-8">
+              <Camera size={48} className="mx-auto text-gray-300 mb-4 animate-spin" />
+              <h3 className="text-lg font-medium text-gray-700">Loading Photos...</h3>
+            </div>
+          ) : photos.length === 0 ? (
+            <div className="text-center p-8">
+              <Camera size={48} className="mx-auto text-gray-300 mb-4" />
+              <h3 className="text-lg font-medium text-gray-700">No Trail Camera Photos</h3>
             </div>
           ) : (
-            <div className="h-full flex flex-col">
-              <div className="p-4 bg-white border-b border-gray-200 flex justify-between items-center">
-                <h2 className="font-bold">Trail Camera Photos</h2>
-                <div className="flex space-x-2">
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Download size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Share2 size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Edit size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded text-red-500">
-                    <Trash size={18} />
-                  </button>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {photos.map((photo) => (
+                <div key={photo.id} className="bg-white rounded-md shadow-sm overflow-hidden">
+                  <img src={photo.mediumUrl} alt="Trail cam" className="w-full h-40 object-cover" />
+                  <div className="p-2">
+                    <p className="text-sm">{new Date(photo.date).toLocaleString()}</p>
+                  </div>
                 </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4">
-                {mockPhotos.length === 0 ? (
-                  <div className="text-center p-8">
-                    <Camera size={48} className="mx-auto text-gray-300 mb-4" />
-                    <h3 className="text-lg font-medium text-gray-700">No Trail Camera Photos</h3>
-                    <p className="text-gray-500 mt-2">
-                      {spypointCredentials
-                        ? "Your connected cameras haven't uploaded any photos yet."
-                        : "Connect your Spypoint account to view your trail camera photos."
-                      }
-                    </p>
-                    {!spypointCredentials && (
-                      <button
-                        className="mt-4 px-4 py-2 bg-orange-500 text-white rounded-md"
-                        onClick={openSpypointModal}
-                      >
-                        Connect Spypoint
-                      </button>
-                    )}
-                  </div>
-                ) : view === 'grid' ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {mockPhotos.map((photo) => (
-                      <div
-                        key={photo.id}
-                        className="bg-white rounded-md shadow-sm overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() => setSelectedPhoto(photo)}
-                      >
-                        <div className="h-40 overflow-hidden">
-                          <img src={photo.url} alt="Trail cam" className="w-full h-full object-cover" />
-                        </div>
-                        <div className="p-2">
-                          <div className="text-sm font-semibold">{photo.date}</div>
-                          <div className="flex flex-wrap mt-1">
-                            {photo.tags.map((tag, idx) => (
-                              <span key={idx} className="text-xs bg-gray-200 rounded-full px-2 py-0.5 mr-1 mb-1">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {mockPhotos.map((photo) => (
-                      <div
-                        key={photo.id}
-                        className="bg-white rounded-md shadow-sm overflow-hidden flex cursor-pointer hover:shadow-md transition-shadow"
-                        onClick={() => setSelectedPhoto(photo)}
-                      >
-                        <div className="w-24 h-24 flex-shrink-0 overflow-hidden">
-                          <img src={photo.url} alt="Trail cam" className="w-full h-full object-cover" />
-                        </div>
-                        <div className="p-3 flex-1">
-                          <div className="font-semibold">{photo.date}</div>
-                          <div className="flex flex-wrap mt-1">
-                            {photo.tags.map((tag, idx) => (
-                              <span key={idx} className="text-xs bg-gray-200 rounded-full px-2 py-0.5 mr-1 mb-1">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="flex items-center p-3 space-x-2">
-                          <button className="p-1 hover:bg-gray-100 rounded">
-                            <Download size={18} />
-                          </button>
-                          <button className="p-1 hover:bg-gray-100 rounded text-red-500">
-                            <Trash size={18} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              ))}
             </div>
           )}
         </div>
-
-        {/* Photo Detail Modal */}
-        {selectedPhoto && (
-          <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
-              <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-                <h3 className="font-bold">{selectedPhoto.date}</h3>
-                <button onClick={() => setSelectedPhoto(null)} className="text-gray-500 hover:text-gray-700">
-                  &times;
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto p-4">
-                <img src={selectedPhoto.url} alt="Trail cam" className="max-w-full mx-auto max-h-[70vh]" />
-              </div>
-              <div className="p-4 border-t border-gray-200">
-                <div className="flex flex-wrap">
-                  {selectedPhoto.tags.map((tag, idx) => (
-                    <span key={idx} className="text-sm bg-gray-200 rounded-full px-3 py-1 mr-2 mb-2">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <div className="flex justify-end mt-4 space-x-2">
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Download size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Share2 size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded">
-                    <Edit size={18} />
-                  </button>
-                  <button className="p-1 hover:bg-gray-100 rounded text-red-500">
-                    <Trash size={18} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Spypoint Modal */}
-        <SpypointModal
-          isOpen={isSpypointModalOpen}
-          onClose={closeSpypointModal}
-          onConnect={handleSpypointConnect}
-          existingCredentials={spypointCredentials}
-        />
       </div>
     </div>
   );

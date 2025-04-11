@@ -3,6 +3,7 @@ import { X } from 'react-feather';
 import { Marker, MarkerType } from '../../contexts/MapContext';
 import CustomMarkerIcon from './CustomMarkerIcon';
 import { useUser } from '../../contexts/UserContext';
+import CameraMarkerPopup from './CameraMarkerPopup';
 
 interface MarkerDetailsPanelProps {
   marker: Marker;
@@ -68,6 +69,20 @@ const MarkerDetailsPanel: React.FC<MarkerDetailsPanelProps> = ({
         {marker.dateCreated && (
           <div className="text-xs text-gray-500 mb-2">
             Created: {marker.dateCreated}
+          </div>
+        )}
+
+        {/* Add camera functionality for camera-type markers */}
+        {marker.type === 'camera' && (
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <CameraMarkerPopup
+              markerId={marker.id}
+              userId={user?.id || ''}
+              onCameraSelect={(cameraId) => {
+                // Handle camera selection if needed
+                console.log('Selected camera:', cameraId);
+              }}
+            />
           </div>
         )}
 

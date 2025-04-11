@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Camera, Check } from 'react-feather';
+import { useUser } from '../../contexts/UserContext';
+import { saveSpypointCredentials, getSpypointCredentials } from '../../firebase';
 
 interface SpypointModalProps {
   isOpen: boolean;
@@ -20,6 +22,7 @@ const SpypointModal: React.FC<SpypointModalProps> = ({
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(!!existingCredentials);
+  const { user } = useUser();
 
   useEffect(() => {
     if (!isOpen) {
@@ -34,7 +37,7 @@ const SpypointModal: React.FC<SpypointModalProps> = ({
     }
   }, [isOpen, existingCredentials]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!username || !password) {
@@ -42,15 +45,46 @@ const SpypointModal: React.FC<SpypointModalProps> = ({
       return;
     }
 
+    if (!user?.id) {
+      setError('You must be logged in to connect Spypoint');
+      return;
+    }
+
     setIsConnecting(true);
     setError(null);
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsConnecting(false);
+    try {
+      // First verify the credentials work with Spypoint
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/syncSpypointPhotos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          userId: user.id,
+          username, 
+          password 
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.text();
+        throw new Error(errorData || 'Invalid credentials');
+      }
+
+      // If credentials work, save them
+      if (saveCredentials && user?.id) {
+        await saveSpypointCredentials(user.id, { username, password });
+      }
+      
       setConnected(true);
       onConnect(username, password);
-    }, 1500);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to save credentials');
+      console.error('Error saving credentials:', error);
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const handleDisconnect = () => {

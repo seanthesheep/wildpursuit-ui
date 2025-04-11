@@ -1,127 +1,190 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Camera, Calendar, Clock, Tag, Eye } from 'react-feather';
-import { Marker } from '../../contexts/MapContext';
+import React, { useState, useEffect } from 'react';
+import { db } from '../../firebase'; // Firestore instance
+import { collection, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { useCameras } from '../../contexts/CameraContext';
+import { getCachedData, setCachedData } from '../../utils/cache';
 
-// Mock camera photos for demo
-const cameraPhotos = {
-  '3': [
-    {
-      id: '1',
-      url: 'https://placehold.co/400',
-      timestamp: new Date('2025-03-15 09:45:00').getTime(),
-      tags: ['buck', '8-point']
-    },
-    {
-      id: '2',
-      url: 'https://placehold.co/400',
-      timestamp: new Date('2025-03-14 18:22:00').getTime(),
-      tags: ['doe']
-    }
-  ]
-};
-
-interface CameraMarkerPopupProps {
-  marker: Marker;
-  onClose: () => void;
+interface Camera {
+  id: string;
+  name: string;
+  notes?: string;
 }
 
-const CameraMarkerPopup: React.FC<CameraMarkerPopupProps> = ({ marker, onClose }) => {
-  // Get the photos for this camera
-  const photos = cameraPhotos[marker.id as keyof typeof cameraPhotos] || [];
+interface CameraPhoto {
+  id: string;
+  smallUrl: string;
+  date: string;
+}
 
-  // Get the most recent photo
-  const latestPhoto = photos.length > 0 ? photos[0] : null;
+interface CameraMarkerPopupProps {
+  markerId: string; // ID of the marker
+  userId: string; // Current user ID
+  onCameraSelect: (cameraId: string) => void; // Callback to notify parent of selected camera
+}
 
-  // Format date
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
+const CameraMarkerPopup: React.FC<CameraMarkerPopupProps> = ({ markerId, userId, onCameraSelect }) => {
+  const { cameras, loading, getCameraById, getRecentPhoto } = useCameras();
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [associatedCamera, setAssociatedCamera] = useState<Camera | null>(null);
+  const [recentPhoto, setRecentPhoto] = useState<any>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Format time
-  const formatTime = (timestamp: number) => {
-    return new Date(timestamp).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
-    });
+  useEffect(() => {
+    const fetchAssociatedCamera = async () => {
+      try {
+        console.log('Fetching associated camera for marker:', markerId); // Debug log
+
+        // Check cache first
+        const cachedMarker = getCachedData(`marker_${markerId}`);
+        if (cachedMarker && cachedMarker.cameraId) {
+          const camera = getCameraById(cachedMarker.cameraId);
+          if (camera) {
+            console.log('Found camera in cache:', camera); // Debug log
+            setSelectedCameraId(cachedMarker.cameraId);
+            setAssociatedCamera(camera);
+            
+            // Always fetch the latest photo
+            const photo = await getRecentPhoto(cachedMarker.cameraId);
+            if (photo) {
+              console.log('Found recent photo:', photo); // Debug log
+              setRecentPhoto(photo);
+              setCachedData(`photo_${cachedMarker.cameraId}`, photo);
+            }
+            return;
+          }
+        }
+
+        // If not in cache, fetch from Firestore
+        const markerDocRef = doc(db, 'markers', markerId);
+        const markerDoc = await getDoc(markerDocRef);
+
+        if (markerDoc.exists()) {
+          const markerData = markerDoc.data();
+          setCachedData(`marker_${markerId}`, markerData);
+          
+          if (markerData.cameraId) {
+            const camera = getCameraById(markerData.cameraId);
+            if (camera) {
+              setSelectedCameraId(markerData.cameraId);
+              setAssociatedCamera(camera);
+              
+              // Fetch the latest photo
+              const photo = await getRecentPhoto(markerData.cameraId);
+              if (photo) {
+                console.log('Fetched recent photo:', photo); // Debug log
+                setRecentPhoto(photo);
+                setCachedData(`photo_${markerData.cameraId}`, photo);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching associated camera:', error);
+      }
+    };
+
+    fetchAssociatedCamera();
+  }, [markerId, getCameraById, getRecentPhoto]);
+
+  const handleSave = async () => {
+    if (!selectedCameraId) return;
+
+    setIsSaving(true);
+    try {
+      const markerDocRef = doc(db, 'markers', markerId);
+
+      const markerDoc = await getDoc(markerDocRef);
+      if (!markerDoc.exists()) {
+        console.error(`Marker document with ID ${markerId} does not exist.`);
+        return;
+      }
+
+      await updateDoc(markerDocRef, { cameraId: selectedCameraId });
+
+      // Get the newly selected camera
+      const camera = getCameraById(selectedCameraId);
+      if (camera) {
+        setAssociatedCamera(camera);
+        // Fetch and set the new recent photo
+        const photo = await getRecentPhoto(selectedCameraId);
+        setRecentPhoto(photo);
+        // Update cache
+        setCachedData(`marker_${markerId}`, { ...markerDoc.data(), cameraId: selectedCameraId });
+        setCachedData(`photo_${selectedCameraId}`, photo);
+      }
+
+      setIsEditing(false);
+      onCameraSelect(selectedCameraId);
+    } catch (error) {
+      console.error('Error saving camera to marker:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div className="p-1 bg-white rounded-md shadow-md w-72">
-      <div className="flex justify-between items-center p-2 border-b border-gray-200">
+    <div className="camera-marker-popup">
+      {loading ? (
+        <div className="text-gray-500">Loading...</div>
+      ) : associatedCamera && !isEditing ? (
         <div className="flex items-center">
-          <div className="w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center mr-2">
-            <Camera size={12} />
-          </div>
-          <span className="font-medium">{marker.name}</span>
-        </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-          &times;
-        </button>
-      </div>
-
-      {latestPhoto ? (
-        <div>
-          <div className="p-2">
-            <div className="h-40 overflow-hidden rounded">
-              <img src={latestPhoto.url} alt="Recent capture" className="w-full h-full object-cover" />
-            </div>
-
-            <div className="mt-2 text-sm">
-              <div className="flex items-center text-gray-600 mb-1">
-                <Calendar size={14} className="mr-1" />
-                <span>{formatDate(latestPhoto.timestamp)}</span>
-                <Clock size={14} className="ml-3 mr-1" />
-                <span>{formatTime(latestPhoto.timestamp)}</span>
-              </div>
-
-              <div className="flex items-center flex-wrap">
-                <Tag size={14} className="mr-1 text-gray-600" />
-                {latestPhoto.tags.map((tag, index) => (
-                  <span
-                    key={index}
-                    className="text-xs bg-gray-200 rounded-full px-2 py-0.5 mr-1 mb-1"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="p-2 pt-0">
-            <Link
-              to="/trail-cameras"
-              className="flex items-center justify-center w-full py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-sm"
-            >
-              <Eye size={14} className="mr-1" />
-              View All Photos ({photos.length})
-            </Link>
-          </div>
+          <span className="font-semibold">{associatedCamera.name}</span>
+          <button
+            onClick={() => setIsEditing(true)}
+            className="ml-2 text-blue-500 hover:underline"
+          >
+            Edit
+          </button>
         </div>
       ) : (
-        <div className="p-4 text-center text-gray-500">
-          <Camera size={32} className="mx-auto mb-2 text-gray-400" />
-          <p>No photos yet from this camera</p>
-          <Link
-            to="/trail-cameras"
-            className="inline-block mt-2 text-sm text-red-500 hover:text-red-600 underline"
+        <>
+          <label htmlFor="camera-select" className="block font-semibold mb-2">
+            {isEditing ? 'Select New Camera:' : 'Select a Camera:'}
+          </label>
+          {cameras.length > 0 ? (
+            <select
+              id="camera-select"
+              className="w-full p-2 border rounded-md"
+              value={selectedCameraId || ''}
+              onChange={(e) => setSelectedCameraId(e.target.value)}
+            >
+              <option value="" disabled>
+                -- Choose a Camera --
+              </option>
+              {cameras.map((camera) => (
+                <option key={camera.id} value={camera.id}>
+                  {camera.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="text-gray-500">No cameras available</div>
+          )}
+
+          <button
+            onClick={handleSave}
+            disabled={!selectedCameraId || isSaving}
+            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded-md disabled:opacity-50"
           >
-            Manage Cameras
-          </Link>
-        </div>
+            {isSaving ? 'Saving...' : 'Save'}
+          </button>
+        </>
       )}
 
-      {marker.notes && (
-        <div className="p-2 pt-0">
-          <p className="text-xs text-gray-600 italic border-t border-gray-100 pt-2">
-            {marker.notes}
-          </p>
+      {recentPhoto && (
+        <div className="mt-4">
+          <h4 className="font-semibold mb-2">Recent Photo</h4>
+          <div>
+            <img
+              src={recentPhoto.smallUrl}
+              alt="Recent trail cam"
+              className="w-full h-32 object-cover rounded-md"
+            />
+            <div className="text-xs text-gray-500 mt-1">
+              {new Date(recentPhoto.date).toLocaleString()}
+            </div>
+          </div>
         </div>
       )}
     </div>
