@@ -17,7 +17,7 @@
   "dependencies": {
     "firebase-admin": "^11.11.0",
     "firebase-functions": "^6.3.2",
-    "spypoint-api-wrapper": "^1.0.0"
+    "node-fetch": "^3.3.0"
   },
   "devDependencies": {
     "eslint": "^8.15.0",
