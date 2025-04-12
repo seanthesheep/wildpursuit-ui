@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useUser } from './UserContext';
+import { getCachedData, setCachedData } from '../utils/cache';
 
 interface Camera {
   id: string;
@@ -33,14 +34,13 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (!user?.id) return;
 
       try {
-        console.log('Fetching cameras for user:', user.id); // Debug log
         const camerasCollection = collection(db, 'users', user.id, 'cameras');
         const snapshot = await getDocs(camerasCollection);
         const fetchedCameras = snapshot.docs.map(doc => ({
           id: doc.id,
-          ...doc.data()
-        }));
-        console.log('Fetched cameras:', fetchedCameras); // Debug log
+          name: doc.data().name,
+          notes: doc.data().notes
+        } as Camera));
         setCameras(fetchedCameras);
       } catch (error) {
         console.error('Error fetching cameras:', error);
@@ -55,10 +55,12 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const getCameraById = (id: string) => cameras.find(camera => camera.id === id);
 
   const getRecentPhoto = async (cameraId: string) => {
+    if (!user?.id) return null;
+    
     const cachedPhoto = getCachedData(`photo_${cameraId}`);
     if (cachedPhoto) return cachedPhoto;
 
-    const photosCollection = collection(db, 'users', user?.id, 'cameras', cameraId, 'photos');
+    const photosCollection = collection(db, 'users', user.id, 'cameras', cameraId, 'photos');
     const q = query(photosCollection, orderBy('date', 'desc'), limit(1));
     const snapshot = await getDocs(q);
     

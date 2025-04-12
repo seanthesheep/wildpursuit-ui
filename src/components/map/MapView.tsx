@@ -24,12 +24,70 @@ interface ViewState {
 }
 
 const MarkerTypes = [
-  { id: 'tree-stand', name: 'Tree Stand', color: 'orange', icon: '/svgs/tree-stand.svg' },
-  { id: 'blind', name: 'Blind', color: 'blue', icon: '/svgs/blind.svg' },
+  // Stands
+  { id: 'leaner-tripod', name: 'Leaner/Tripod', color: 'orange', icon: '/svgs/tree-stand.svg' },
+  { id: 'hang-on', name: 'Hang On', color: 'orange', icon: '/svgs/tree-stand.svg' },
+  { id: 'climber-stand', name: 'Climber Stand', color: 'orange', icon: '/svgs/tree-stand.svg' },
+  { id: 'ground-blind', name: 'Ground Blind', color: 'orange', icon: '/svgs/blind.svg' },
+  { id: 'custom-stand', name: 'Custom Stand', color: 'orange', icon: '/svgs/Custom.svg' },
+
+  // Property Features
   { id: 'food-plot', name: 'Food Plot', color: 'green', icon: '/svgs/food-plot.svg' },
-  { id: 'feeder', name: 'Feeder', color: 'yellow', icon: '/svgs/feeder.svg' },
-  { id: 'parking', name: 'Parking', color: 'gray', icon: '/svgs/parking.svg' },
-  { id: 'camera', name: 'Trail Camera', color: 'red', icon: '/svgs/camera.svg' },
+  { id: 'club-camp', name: 'Club/Camp', color: 'green', icon: '/svgs/Custom.svg' },
+  { id: 'gate', name: 'Gate', color: 'green', icon: '/svgs/Gate.svg' },
+  { id: 'parking', name: 'Parking', color: 'green', icon: '/svgs/Parking.svg' },
+  { id: 'ag-field', name: 'Ag Field', color: 'green', icon: '/svgs/food-plot.svg' },
+  { id: 'feeder', name: 'Feeder', color: 'green', icon: '/svgs/Freeder.svg' },
+  { id: 'bait-pile', name: 'Bait Pile', color: 'green', icon: '/svgs/other Food Source.svg' },
+  { id: 'custom-property', name: 'Custom Property', color: 'green', icon: '/svgs/Custom.svg' },
+
+  // Harvest
+  { id: 'buck-harvest', name: 'Buck', color: 'red', icon: '/svgs/Buck.svg' },
+  { id: 'doe-harvest', name: 'Doe', color: 'red', icon: '/svgs/Doe.svg' },
+  { id: 'turkey-harvest', name: 'Turkey', color: 'red', icon: '/svgs/Turkey.svg' },
+  { id: 'waterfowl-harvest', name: 'Waterfowl', color: 'red', icon: '/svgs/waterfowl.svg' },
+  { id: 'hog-harvest', name: 'Hog', color: 'red', icon: '/svgs/Hog.svg' },
+  { id: 'geese-harvest', name: 'Geese', color: 'red', icon: '/svgs/Geese.svg' },
+  { id: 'duck-harvest', name: 'Duck', color: 'red', icon: '/svgs/Duck.svg' },
+  { id: 'pronghorn-harvest', name: 'Pronghorn', color: 'red', icon: '/svgs/Pronghom.svg' },
+  { id: 'custom-harvest', name: 'Custom Harvest', color: 'red', icon: '/svgs/Custom.svg' },
+
+  // Sightings
+  { id: 'buck-sighting', name: 'Buck', color: 'blue', icon: '/svgs/Buck.svg' },
+  { id: 'doe-sighting', name: 'Doe', color: 'blue', icon: '/svgs/Doe.svg' },
+  { id: 'turkey-sighting', name: 'Turkey', color: 'blue', icon: '/svgs/Turkey.svg' },
+  { id: 'waterfowl-sighting', name: 'Waterfowl', color: 'blue', icon: '/svgs/waterfowl.svg' },
+  { id: 'hog-sighting', name: 'Hog', color: 'blue', icon: '/svgs/Hog.svg' },
+  { id: 'geese-sighting', name: 'Geese', color: 'blue', icon: '/svgs/Geese.svg' },
+  { id: 'duck-sighting', name: 'Duck', color: 'blue', icon: '/svgs/Duck.svg' },
+  { id: 'pronghorn-sighting', name: 'Pronghorn', color: 'blue', icon: '/svgs/Pronghom.svg' },
+  { id: 'custom-sighting', name: 'Custom Sighting', color: 'blue', icon: '/svgs/Custom.svg' },
+
+  // Scouting
+  { id: 'track', name: 'Track', color: 'yellow', icon: '/svgs/Tracks.svg' },
+  { id: 'blood-trail', name: 'Blood Trail', color: 'red', icon: '/svgs/Blood Trial.svg' },
+  { id: 'bedding', name: 'Bedding', color: 'yellow', icon: '/svgs/Bedding.svg' },
+  { id: 'buck-rub', name: 'Buck Rub', color: 'yellow', icon: '/svgs/Buck rub.svg' },
+  { id: 'buck-scrape', name: 'Buck Scrape', color: 'yellow', icon: '/svgs/BuckScrap.svg' },
+  { id: 'droppings', name: 'Droppings', color: 'yellow', icon: '/svgs/Scat.svg' },
+  { id: 'trail-crossing', name: 'Trail Crossing', color: 'yellow', icon: '/svgs/Tracks.svg' },
+  { id: 'food-source', name: 'Food Source', color: 'yellow', icon: '/svgs/other Food Source.svg' },
+  { id: 'glassing-point', name: 'Glassing Point', color: 'yellow', icon: '/svgs/Custom.svg' },
+  { id: 'buck-shed', name: 'Buck Shed', color: 'white', icon: '/svgs/Buck Shed.svg' },
+
+  // Turkey Specific
+  { id: 'turkey-tracks', name: 'Turkey Tracks', color: 'yellow', icon: '/svgs/Tracks.svg' },
+  { id: 'turkey-scratching', name: 'Turkey Scratching', color: 'yellow', icon: '/svgs/Custom.svg' },
+  { id: 'turkey-scat', name: 'Turkey Scat', color: 'yellow', icon: '/svgs/Scat.svg' },
+  { id: 'turkey-roost', name: 'Roost Area', color: 'yellow', icon: '/svgs/Custom.svg' },
+  { id: 'turkey-gobble', name: 'Gobble Heard', color: 'yellow', icon: '/svgs/Custom.svg' },
+  { id: 'turkey-setup', name: 'Set Up Location', color: 'yellow', icon: '/svgs/Custom.svg' },
+  { id: 'turkey-custom', name: 'Custom Turkey', color: 'yellow', icon: '/svgs/Custom.svg' },
+
+  // Other
+  { id: 'camera', name: 'Trail Camera', color: 'yellow', icon: '/svgs/trail camera.svg' },
+  { id: 'hazard', name: 'Hazard', color: 'red', icon: '/svgs/Hazard.svg' },
+  { id: 'custom', name: 'Custom', color: 'white', icon: '/svgs/Custom.svg' },
 ];
 
 const MapView: React.FC = () => {
@@ -227,25 +285,32 @@ const MapView: React.FC = () => {
       mapMarkers.current[marker.id] = mapboxMarker;
 
       // Add marker icon to the container element
-      const container = markerEl.querySelector(".marker-container");
+      const container = markerEl.querySelector(".marker-container") as HTMLElement;
       if (container) {
         const iconEl = document.createElement("img");
         iconEl.src = MarkerTypes.find((type) => type.id === marker.type)?.icon || "/svgs/default.svg";
         iconEl.alt = marker.type;
-        iconEl.style.width = "32px";
-        iconEl.style.height = "32px";
-        iconEl.style.borderRadius = "50%";
-        iconEl.style.border = "2px solid white";
-        iconEl.style.boxShadow = "0 2px 4px rgba(0,0,0,0.3)";
+        iconEl.style.width = "48px";
+        iconEl.style.height = "48px";
+        iconEl.style.transform = "translate(-50%, -50%)";
+        iconEl.style.position = "absolute";
+        iconEl.style.top = "50%";
+        iconEl.style.left = "50%";
         container.appendChild(iconEl);
 
-        // Add click event listener to show marker details
-        markerEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-          setSelectedMarkerId(marker.id);
-          setMarkerDetails(marker);
-        });
+        // Update container styles
+        container.style.display = "block";
+        container.style.position = "relative";
+        container.style.width = "48px";
+        container.style.height = "48px";
       }
+
+      // Add click event listener to show marker details
+      markerEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        setSelectedMarkerId(marker.id);
+        setMarkerDetails(marker);
+      });
     });
 
     // Cleanup function
@@ -474,11 +539,41 @@ const MapView: React.FC = () => {
                 value={selectedMarkerType}
                 onChange={(e) => setSelectedMarkerType(e.target.value as MarkerType)}
               >
-                {MarkerTypes.map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.name}
-                  </option>
-                ))}
+                <optgroup label="Stands">
+                  {MarkerTypes.filter(type => ['leaner-tripod', 'hang-on', 'climber-stand', 'ground-blind', 'custom-stand'].includes(type.id)).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Property Features">
+                  {MarkerTypes.filter(type => ['food-plot', 'club-camp', 'gate', 'parking', 'ag-field', 'feeder', 'bait-pile', 'custom-property'].includes(type.id)).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Harvest">
+                  {MarkerTypes.filter(type => type.id.endsWith('-harvest')).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Sightings">
+                  {MarkerTypes.filter(type => type.id.endsWith('-sighting')).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Scouting">
+                  {MarkerTypes.filter(type => ['track', 'blood-trail', 'bedding', 'buck-rub', 'buck-scrape', 'droppings', 'trail-crossing', 'food-source', 'glassing-point', 'buck-shed'].includes(type.id)).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Turkey">
+                  {MarkerTypes.filter(type => type.id.startsWith('turkey-')).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Other">
+                  {MarkerTypes.filter(type => ['camera', 'hazard', 'custom'].includes(type.id)).map((type) => (
+                    <option key={type.id} value={type.id}>{type.name}</option>
+                  ))}
+                </optgroup>
               </select>
             </div>
             <div className="flex justify-between">
