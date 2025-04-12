@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useUser } from './UserContext';
-import { getCachedData, setCachedData } from '../utils/cache';
+import { getCachedData, setCachedData, getCachedPhotoData } from '../utils/cache';
 
 interface Camera {
   id: string;
@@ -57,22 +57,29 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const getRecentPhoto = async (cameraId: string) => {
     if (!user?.id) return null;
     
-    const cachedPhoto = getCachedData(`photo_${cameraId}`);
+    // Use photo-specific cache check
+    const cachedPhoto = getCachedPhotoData(`photo_${cameraId}`);
     if (cachedPhoto) return cachedPhoto;
 
-    const photosCollection = collection(db, 'users', user.id, 'cameras', cameraId, 'photos');
-    const q = query(photosCollection, orderBy('date', 'desc'), limit(1));
-    const snapshot = await getDocs(q);
-    
-    if (snapshot.empty) return null;
+    try {
+      const photosCollection = collection(db, 'users', user.id, 'cameras', cameraId, 'photos');
+      const q = query(photosCollection, orderBy('date', 'desc'), limit(1));
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) return null;
 
-    const photo = {
-      id: snapshot.docs[0].id,
-      ...snapshot.docs[0].data()
-    };
+      const photo = {
+        id: snapshot.docs[0].id,
+        ...snapshot.docs[0].data()
+      };
 
-    setCachedData(`photo_${cameraId}`, photo);
-    return photo;
+      // Cache the photo with timestamp
+      setCachedData(`photo_${cameraId}`, photo);
+      return photo;
+    } catch (error) {
+      console.error('Error fetching recent photo:', error);
+      return null;
+    }
   };
 
   return (

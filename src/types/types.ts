@@ -26,3 +26,14 @@ export interface HuntArea {
   createdBy?: string;
   clubId?: string;
 }
+
+export interface CameraPhoto {
+  id: string;
+  cameraId: string;
+  userId: string;
+  date: string;
+  smallUrl: string;
+  mediumUrl: string;
+  largeUrl: string;
+  tags?: string[];
+}

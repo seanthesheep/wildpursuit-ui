@@ -100,7 +100,14 @@ module.exports = {
           '2xl': '1536px',
         },
       },
+      aspectRatio: {
+        'w-16': 16,
+        'h-9': 9,
+      },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require('@tailwindcss/aspect-ratio'),
+  ],
 };

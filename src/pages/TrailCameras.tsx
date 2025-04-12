@@ -3,35 +3,24 @@ import { MapPin, Plus, Camera, Grid, List } from 'react-feather';
 import { useUser } from '../contexts/UserContext';
 import { useSpypointSync } from '../hooks/useSpypointSync';
 import { db } from '../firebase'; // Firestore instance
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, startAfter } from 'firebase/firestore';
 import CameraMarkerPopup from '../components/map/CameraMarkerPopup';
-
-interface Marker {
-  id: string;
-  name: string;
-  notes?: string;
-  cameraId?: string; // Associated camera ID
-  type: string; // Marker type (e.g., "camera")
-}
-
-interface CameraPhoto {
-  id: string;
-  cameraId: string;
-  userId: string;
-  date: string;
-  smallUrl: string;
-  mediumUrl: string;
-  largeUrl: string;
-  tags: string[];
-}
+import PhotoCard from '../components/PhotoCard';
+import { Marker, CameraPhoto } from '../types/types';
 
 const TrailCameras: React.FC = () => {
   const { user } = useUser();
   const [markers, setMarkers] = useState<Marker[]>([]); // State for markers
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [photos, setPhotos] = useState<CameraPhoto[]>([]);
-  const [photosLoading, setPhotosLoading] = useState(false); // New loading state
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalPhotosLoaded, setTotalPhotosLoaded] = useState(0);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
+  const [lastVisible, setLastVisible] = useState<any>(null); // Add this state for pagination
+
+  const PHOTOS_PER_PAGE = 12; // Number of photos to load at once
 
   const userId = user?.id || 'exampleUserId'; // Replace with actual user ID from context/auth
   const { syncPhotos, isLoading, lastSync, error } = useSpypointSync();
@@ -58,30 +47,55 @@ const TrailCameras: React.FC = () => {
   }, []);
 
   // Fetch photos for the selected camera
-  useEffect(() => {
-    console.log(`Fetching photos for Camera ID: ${selectedCameraId}`); // Debug log
+  const fetchPhotos = async (page: number) => {
+    if (!selectedCameraId) return;
 
-    if (!selectedCameraId) {
-      setPhotos([]); // Clear photos if no camera is selected
-      return;
-    }
+    setPhotosLoading(true);
+    try {
+      const photosCollection = collection(
+        db,
+        'users',
+        userId,
+        'cameras',
+        selectedCameraId,
+        'photos'
+      );
 
-    const fetchPhotos = async () => {
-      setPhotosLoading(true); // Start loading
-      try {
-        const photosCollection = collection(
-          db,
-          'users',
-          userId,
-          'cameras',
-          selectedCameraId,
-          'photos'
+      // Create query with proper pagination
+      let q = query(
+        photosCollection,
+        orderBy('date', 'desc'),
+        limit(PHOTOS_PER_PAGE)
+      );
+
+      // Add startAfter for subsequent pages
+      if (page > 1 && lastVisible) {
+        q = query(
+          photosCollection,
+          orderBy('date', 'desc'),
+          startAfter(lastVisible),
+          limit(PHOTOS_PER_PAGE)
         );
-        const snapshot = await getDocs(photosCollection);
-        const fetchedPhotos: CameraPhoto[] = [];
+      }
 
-        snapshot.forEach((doc) => {
-          const data = doc.data();
+      const snapshot = await getDocs(q);
+      const fetchedPhotos: CameraPhoto[] = [];
+
+      // Update lastVisible
+      setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
+
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        
+        // Validate URL before adding to fetchedPhotos
+        if (!data.mediumUrl) {
+          console.warn('Photo missing mediumUrl:', doc.id);
+          return; // Skip this photo
+        }
+
+        // Validate the URL format
+        try {
+          new URL(data.mediumUrl);
           fetchedPhotos.push({
             id: doc.id,
             cameraId: data.cameraId,
@@ -92,20 +106,43 @@ const TrailCameras: React.FC = () => {
             largeUrl: data.largeUrl,
             tags: data.tags || [],
           });
-        });
+        } catch (error) {
+          console.error('Invalid photo URL:', {
+            photoId: doc.id,
+            url: data.mediumUrl,
+            error
+          });
+        }
+      });
 
-        console.log(`Fetched Photos:`, fetchedPhotos); // Debug log
-        setPhotos(fetchedPhotos); // Update photos state
-      } catch (error) {
-        console.error('Error fetching photos:', error);
-        setPhotos([]); // Clear photos on error
-      } finally {
-        setPhotosLoading(false); // End loading
-      }
-    };
+      setHasMore(fetchedPhotos.length === PHOTOS_PER_PAGE);
+      setPhotos((prev) => (page === 1 ? fetchedPhotos : [...prev, ...fetchedPhotos]));
+      setTotalPhotosLoaded((prev) => prev + fetchedPhotos.length);
+    } catch (error) {
+      console.error('Error fetching photos:', error);
+    } finally {
+      setPhotosLoading(false);
+    }
+  };
 
-    fetchPhotos();
-  }, [selectedCameraId, userId]);
+  useEffect(() => {
+    if (!selectedCameraId) {
+      setPhotos([]);
+      setCurrentPage(1);
+      setTotalPhotosLoaded(0);
+      setHasMore(true);
+      setLastVisible(null); // Reset lastVisible when camera changes
+      return;
+    }
+
+    fetchPhotos(1);
+  }, [selectedCameraId]);
+
+  const handleLoadMore = () => {
+    const nextPage = currentPage + 1;
+    setCurrentPage(nextPage);
+    fetchPhotos(nextPage);
+  };
 
   return (
     <div className="h-full flex flex-col">
@@ -171,11 +208,12 @@ const TrailCameras: React.FC = () => {
                 className="bg-orange-100 p-3 rounded-md flex items-center border-l-4 border-orange-500 cursor-pointer"
                 onClick={() => {
                   if (marker.cameraId) {
-                    console.log(`Selected Camera ID: ${marker.cameraId}`); // Debug log
-                    setSelectedCameraId(marker.cameraId); // Fetch all photos for the associated camera
+                    console.log(`Selected Camera ID: ${marker.cameraId}`);
+                    setCurrentPage(1); // Reset to first page
+                    setSelectedCameraId(marker.cameraId);
                   } else {
                     console.warn(`Marker ${marker.id} has no associated camera.`);
-                    setSelectedCameraId(null); // Clear the selected camera
+                    setSelectedCameraId(null);
                   }
                 }}
               >
@@ -199,8 +237,8 @@ const TrailCameras: React.FC = () => {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 bg-gray-100 overflow-hidden">
-          {photosLoading ? ( // Show loading indicator while photos are being fetched
+        <div className="flex-1 bg-gray-100 overflow-y-auto">
+          {photosLoading && currentPage === 1 ? (
             <div className="text-center p-8">
               <Camera size={48} className="mx-auto text-gray-300 mb-4 animate-spin" />
               <h3 className="text-lg font-medium text-gray-700">Loading Photos...</h3>
@@ -211,15 +249,28 @@ const TrailCameras: React.FC = () => {
               <h3 className="text-lg font-medium text-gray-700">No Trail Camera Photos</h3>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {photos.map((photo) => (
-                <div key={photo.id} className="bg-white rounded-md shadow-sm overflow-hidden">
-                  <img src={photo.mediumUrl} alt="Trail cam" className="w-full h-40 object-cover" />
-                  <div className="p-2">
-                    <p className="text-sm">{new Date(photo.date).toLocaleString()}</p>
-                  </div>
+            <div className="p-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {photos.map((photo) => (
+                  <PhotoCard 
+                    key={photo.id} 
+                    photo={photo} 
+                    onSync={syncPhotos} 
+                  />
+                ))}
+              </div>
+              
+              {hasMore && (
+                <div className="text-center mt-4">
+                  <button
+                    onClick={handleLoadMore}
+                    disabled={photosLoading}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:opacity-50 hover:bg-blue-600"
+                  >
+                    {photosLoading ? 'Loading...' : 'Load More'}
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
