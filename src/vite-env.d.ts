@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_MEASUREMENT_ID: string
   readonly VITE_MAPBOX_ACCESS_TOKEN: string
   readonly VITE_API_URL: string
+  readonly VITE_WEATHERSTACK_API_KEY: string
 }
 
 interface ImportMeta {

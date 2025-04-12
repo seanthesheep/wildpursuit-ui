@@ -7,7 +7,9 @@ import {
   getGameActivityTimes,
   WeatherData,
   ForecastData,
-  MoonData
+  MoonData,
+  getSolunarData,
+  SolunarData
 } from '../services/weatherService';
 import { MapPin, ChevronUp, ChevronDown, Moon, Sun } from 'react-feather';
 import mapboxgl from 'mapbox-gl';
@@ -22,6 +24,7 @@ const WeatherPage: React.FC = () => {
   const [forecast, setForecast] = useState<ForecastData | null>(null);
   const [moonData, setMoonData] = useState<MoonData | null>(null);
   const [gameActivity, setGameActivity] = useState<any>(null);
+  const [solunarData, setSolunarData] = useState<SolunarData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForecast, setShowForecast] = useState(false);
 
@@ -61,6 +64,50 @@ const WeatherPage: React.FC = () => {
     }
 
     return dates;
+  };
+
+  // Add this helper function in Weather.tsx
+  const getMoonIcon = (phase: string) => {
+    const phases: { [key: string]: string } = {
+      'New Moon': '🌑',
+      'Waxing Crescent': '🌒',
+      'First Quarter': '🌓',
+      'Waxing Gibbous': '🌔',
+      'Full Moon': '🌕',
+      'Waning Gibbous': '🌖',
+      'Last Quarter': '🌗',
+      'Waning Crescent': '🌘'
+    };
+    return phases[phase] || '🌑';
+  };
+
+  // Add this helper function alongside getMoonIcon
+  const getWeatherIcon = (description: string) => {
+    const conditions: Record<string, string> = {
+      'Clear': '☀️',
+      'Sunny': '☀️',
+      'Partly Cloudy': '⛅',
+      'Mostly Cloudy': '🌥️',
+      'Cloudy': '☁️',
+      'Rain': '🌧️',
+      'Light Rain': '🌦️',
+      'Heavy Rain': '⛈️',
+      'Thunderstorm': '⛈️',
+      'Snow': '🌨️',
+      'Light Snow': '🌨️',
+      'Heavy Snow': '❄️',
+      'Fog': '🌫️',
+      'Haze': '🌫️',
+      'Wind': '💨',
+      'Storm':'⛈️',
+    };
+    
+    // Find partial matches if exact match isn't found
+    const condition = Object.keys(conditions).find(key => 
+      description.toLowerCase().includes(key.toLowerCase())
+    );
+    
+    return condition ? conditions[condition] : '☀️'; // Default to sunny if no match
   };
 
   // Initialize background map
@@ -103,18 +150,19 @@ const WeatherPage: React.FC = () => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [weatherData, forecastData, moonPhaseData] = await Promise.all([
+        console.log('Fetching data for location:', mapLocation);
+        const [weatherData, forecastData, solunarResponse] = await Promise.all([
           getCurrentWeather(mapLocation.latitude, mapLocation.longitude),
           getForecast(mapLocation.latitude, mapLocation.longitude),
-          getMoonPhase(mapLocation.latitude, mapLocation.longitude)
+          getSolunarData(mapLocation.latitude, mapLocation.longitude)
         ]);
 
+        console.log('Solunar Response:', solunarResponse);
         setWeather(weatherData);
         setForecast(forecastData);
-        setMoonData(moonPhaseData);
-        setGameActivity(getGameActivityTimes());
+        setSolunarData(solunarResponse);
       } catch (error) {
-        console.error('Error fetching weather data:', error);
+        console.error('Error fetching data:', error);
       } finally {
         setLoading(false);
       }
@@ -199,260 +247,211 @@ const WeatherPage: React.FC = () => {
       {/* Background Map */}
       <div ref={mapContainer} className="absolute inset-0" />
 
-      {/* Weather Cards */}
-      <div className="absolute top-0 left-0 right-0 z-10 p-2 md:p-4 overflow-y-auto max-h-full grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-        {/* Area Name */}
-        <div className="text-white text-xl md:text-3xl font-semibold ml-2">My Location</div>
-
-        {/* Current Weather Card */}
-        <div className="bg-green-600 text-white text-center py-2 rounded-t-md font-semibold col-span-1">
-          CURRENT WEATHER
+      {/* Main Content Container */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-2 md:p-4 overflow-y-auto max-h-full">
+        {/* Location Header */}
+        <div className="text-white text-xl md:text-3xl font-semibold ml-2 mb-4">
+          My Location
         </div>
 
-        {/* Solunar Card */}
-        <div className="bg-green-600 text-white text-center py-2 rounded-t-md font-semibold col-span-1">
-          SOLUNAR
-        </div>
-
-        {/* Current Weather Content */}
-        <div className="bg-black bg-opacity-75 text-white p-3 md:p-4 rounded-b-md">
-          <div className="text-center mb-4">
-            <div className="text-base md:text-2xl">{formatDate()}</div>
-            <div className="flex flex-wrap items-center justify-center mt-4">
-              <div className="mb-2 md:mb-0 md:mr-8">
-                <img
-                  src="https://c.tadst.com/gfx/1200x630/waning-gibbous-moon.jpg?1"
-                  alt="Moon"
-                  className="w-20 h-20 md:w-32 md:h-32"
-                />
-              </div>
-              <div className="mx-4 md:mx-0">
-                <div className="text-3xl md:text-5xl">{weather?.temperature.toFixed(0)}°F</div>
-                <div className="text-xs md:text-sm">Feels like {weather?.feelsLike.toFixed(0)}°F</div>
-                <div className="text-xs md:text-sm mt-1 md:mt-2">
-                  Hi: {weather?.high.toFixed(0)}°F | Lo: {weather?.low.toFixed(0)}°F
+        {/* Weather and Solunar Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Current Weather Section */}
+          <div>
+            <div className="bg-green-600 text-white text-center py-2 rounded-t-md font-semibold">
+              CURRENT WEATHER
+            </div>
+            <div className="bg-black bg-opacity-75 text-white p-3 md:p-4 rounded-b-md">
+              <div className="text-center mb-4">
+                <div className="text-base md:text-2xl">{formatDate()}</div>
+                <div className="flex flex-wrap items-center justify-center mt-4">
+                  <div className="mb-2 md:mb-0 md:mr-8">
+                    <div className="text-4xl md:text-6xl">
+                      {getWeatherIcon(weather?.description || '')}
+                    </div>
+                  </div>
+                  <div className="mx-4 md:mx-0">
+                    <div className="text-3xl md:text-5xl">{weather?.temperature.toFixed(0)}°F</div>
+                    <div className="text-xs md:text-sm">Feels like {weather?.feelsLike.toFixed(0)}°F</div>
+                    <div className="text-xs md:text-sm mt-1 md:mt-2">
+                      Hi: {weather?.high.toFixed(0)}°F | Lo: {weather?.low.toFixed(0)}°F
+                    </div>
+                  </div>
+                  <div className="ml-4 md:ml-8 mt-2 md:mt-0">
+                    <div className="w-16 h-16 md:w-24 md:h-24 rounded-full border-4 border-green-500 flex items-center justify-center relative">
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="w-10 h-10 md:w-16 md:h-16 rounded-full border-2 border-green-400 flex items-center justify-center">
+                          <div className="w-6 h-6 md:w-10 md:h-10 rounded-full border-2 border-green-300 flex items-center justify-center">
+                            <div className="w-2 h-2 md:w-4 md:h-4 rounded-full bg-red-500"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="ml-4 md:ml-8 mt-2 md:mt-0">
-                <div className="w-16 h-16 md:w-24 md:h-24 rounded-full border-4 border-green-500 flex items-center justify-center relative">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    {/* Wind direction indicator */}
-                    <div className="w-10 h-10 md:w-16 md:h-16 rounded-full border-2 border-green-400 flex items-center justify-center">
-                      <div className="w-6 h-6 md:w-10 md:h-10 rounded-full border-2 border-green-300 flex items-center justify-center">
-                        <div className="w-2 h-2 md:w-4 md:h-4 rounded-full bg-red-500"></div>
+
+                <div className="mt-3 md:mt-4 text-base md:text-xl">{weather?.description}</div>
+
+                <div className="grid grid-cols-2 gap-2 md:gap-4 mt-4 md:mt-6 text-xs md:text-base">
+                  <div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Pressure:</span>
+                      <span>{weather?.pressure} inHg</span>
+                    </div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Visibility:</span>
+                      <span>{weather?.visibility} mi</span>
+                    </div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Cloud cover:</span>
+                      <span>{weather?.cloudCover}%</span>
+                    </div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Chance of prec:</span>
+                      <span>{weather?.precipChance}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Humidity:</span>
+                      <span>{weather?.humidity}%</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Wind direction:</span>
+                      <span>N</span>
+                    </div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Wind (out of):</span>
+                      <span>{weather?.windSpeed} mph N</span>
+                    </div>
+                    <div className="flex justify-between mb-1 md:mb-2">
+                      <span>Gust:</span>
+                      <span>{weather?.windGust} mph</span>
+                    </div>
+                    <div className="flex items-center justify-between mb-1 md:mb-2">
+                      <span></span>
+                      <div className="w-20 md:w-32 bg-gray-700 h-2 rounded-full">
+                        <div className="bg-green-500 h-2 rounded-full" style={{ width: '20%' }}></div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between mb-1 md:mb-2">
+                      <span></span>
+                      <div className="w-20 md:w-32 bg-gray-700 h-2 rounded-full">
+                        <div className="bg-green-500 h-2 rounded-full" style={{ width: '50%' }}></div>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="mt-3 md:mt-4 text-base md:text-xl">{weather?.description}</div>
-
-            <div className="grid grid-cols-2 gap-2 md:gap-4 mt-4 md:mt-6 text-xs md:text-base">
-              <div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Pressure:</span>
-                  <span>{weather?.pressure} inHg</span>
+          {/* Solunar Section */}
+          <div>
+            <div className="bg-green-600 text-white text-center py-2 rounded-t-md font-semibold">
+              SOLUNAR
+            </div>
+            <div className="bg-black bg-opacity-75 text-white p-3 md:p-4 rounded-b-md">
+              {loading ? (
+                <div className="flex justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-600"></div>
                 </div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Visibility:</span>
-                  <span>{weather?.visibility} mi</span>
-                </div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Cloud cover:</span>
-                  <span>{weather?.cloudCover}%</span>
-                </div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Chance of prec:</span>
-                  <span>{weather?.precipChance}%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Humidity:</span>
-                  <span>{weather?.humidity}%</span>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Wind direction:</span>
-                  <span>N</span>
-                </div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Wind (out of):</span>
-                  <span>{weather?.windSpeed} mph N</span>
-                </div>
-                <div className="flex justify-between mb-1 md:mb-2">
-                  <span>Gust:</span>
-                  <span>{weather?.windGust} mph</span>
-                </div>
-                <div className="flex items-center justify-between mb-1 md:mb-2">
-                  <span></span>
-                  <div className="w-20 md:w-32 bg-gray-700 h-2 rounded-full">
-                    <div className="bg-green-500 h-2 rounded-full" style={{ width: '20%' }}></div>
+              ) : solunarData ? (
+                <div className="mb-3 md:mb-4">
+                  <h3 className="font-semibold mb-2">
+                    Day Rating: {solunarData.dayRating}/5
+                    <span className="text-xs text-gray-400 ml-2">(Debug: {JSON.stringify(solunarData.dayRating)})</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="font-medium mb-1">Major Periods</h4>
+                      <div className="text-sm">
+                        {solunarData.majorPeriods[0].start} - {solunarData.majorPeriods[0].end}
+                        <span className="text-xs text-gray-400 ml-2">({solunarData.majorPeriods[0].weight}%)</span>
+                      </div>
+                      <div className="text-sm">
+                        {solunarData.majorPeriods[1].start} - {solunarData.majorPeriods[1].end}
+                        <span className="text-xs text-gray-400 ml-2">({solunarData.majorPeriods[1].weight}%)</span>
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-1">Minor Periods</h4>
+                      <div className="text-sm">
+                        {solunarData.minorPeriods[0].start} - {solunarData.minorPeriods[0].end}
+                        <span className="text-xs text-gray-400 ml-2">({solunarData.minorPeriods[0].weight}%)</span>
+                      </div>
+                      <div className="text-sm">
+                        {solunarData.minorPeriods[1].start} - {solunarData.minorPeriods[1].end}
+                        <span className="text-xs text-gray-400 ml-2">({solunarData.minorPeriods[1].weight}%)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <h4 className="font-medium mb-1">Sun</h4>
+                      <div className="text-sm">Rise: {solunarData.sunrise}</div>
+                      <div className="text-sm">Set: {solunarData.sunset}</div>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-1">Moon</h4>
+                      <div className="text-sm">Phase: {solunarData.moonPhase}</div>
+                      <div className="text-sm">Rise: {solunarData.moonrise}</div>
+                      <div className="text-sm">Set: {solunarData.moonset}</div>
+                      <div className="text-sm">Illumination: {solunarData.moonIllumination}%</div>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center justify-between mb-1 md:mb-2">
-                  <span></span>
-                  <div className="w-20 md:w-32 bg-gray-700 h-2 rounded-full">
-                    <div className="bg-green-500 h-2 rounded-full" style={{ width: '50%' }}></div>
-                  </div>
+              ) : (
+                <div className="text-center text-gray-400">
+                  No solunar data available
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Solunar Content */}
-        <div className="bg-black bg-opacity-75 text-white p-3 md:p-4 rounded-b-md">
-          {/* Moon Phase Calendar - displays 5 days */}
-          <div className="mb-3 md:mb-4 text-xs md:text-base">
-            <h3 className="text-sm font-semibold mb-2">Moon Phase Calendar</h3>
-            <div className="grid grid-cols-5 text-center mb-3 md:mb-4 border-b border-gray-700 pb-2">
-              {weekDates.map((date, index) => (
-                <div key={index} className="flex flex-col items-center">
-                  <span className="font-medium">{formatShortDay(date.getTime())}</span>
-                  <span className="text-xs text-gray-400">{formatMonthDay(date.getTime())}</span>
+        {/* 5 Day Forecast Section */}
+        <div className="mt-4">
+          <button
+            onClick={toggleForecast}
+            className="w-full bg-green-600 text-white py-1 md:py-2 font-semibold flex items-center justify-center"
+          >
+            5 DAY FORECAST
+            {showForecast ? (
+              <ChevronDown className="ml-2" size={18} />
+            ) : (
+              <ChevronUp className="ml-2" size={18} />
+            )}
+          </button>
+
+          {/* Collapsible Forecast Content */}
+          <div
+            className={`transition-all duration-300 ease-in-out overflow-hidden ${
+              showForecast ? 'max-h-80' : 'max-h-0'
+            }`}
+          >
+            <div className="grid grid-cols-5 bg-black bg-opacity-75 text-white text-xs md:text-base">
+              {forecast?.daily.map((day, index) => (
+                <div key={index} className="text-center p-2 md:p-4 border-r border-gray-700 last:border-r-0">
+                  <div className="font-medium">{formatDay(day.date)}</div>
+                  <div className="flex flex-col items-center my-2">
+                    <div className="text-2xl md:text-3xl mb-1">
+                      {getWeatherIcon(day.description)}
+                    </div>
+                    <div className="text-xs mt-1">{day.description}</div>
+                  </div>
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="text-sm">H: {day.high}°</div>
+                    <div className="text-sm">L: {day.low}°</div>
+                  </div>
+                  {/* Moon Phase */}
+                  <div className="mt-2 text-xs text-gray-300">
+                    <div className="text-lg">{getMoonIcon(day.moonPhase)}</div>
+                    <div>{day.moonIllumination}%</div>
+                  </div>
                 </div>
               ))}
             </div>
-
-            {/* Moon Phase Icons */}
-            <div className="grid grid-cols-5 text-center mb-2">
-              {weekDates.map((date, index) => {
-                const illumination = getMoonIlluminationForDate(index);
-                return (
-                  <div key={`moon-${index}`} className="flex flex-col items-center">
-                    <img
-                      src={getMoonPhaseIcon(illumination)}
-                      alt={`Moon phase day ${index+1}`}
-                      className="w-8 h-8 md:w-12 md:h-12"
-                    />
-                    <span className="text-xs mt-1">{illumination}%</span>
-                    <span className="text-xs text-gray-400">{getMoonPhaseForDate(index)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mb-3 md:mb-4 text-xs md:text-base">
-            <div className="flex items-center mb-2">
-              <span className="font-semibold mr-2">Today's Moon Phase:</span>
-              <span>{moonData?.phase}</span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 mb-3 md:mb-4">
-              <div>
-                <h3 className="text-center mb-1 md:mb-2">Solar position</h3>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>Sunrise:</span>
-                  <span>Mar 17, 7:31 AM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm">
-                  <span>Sunset:</span>
-                  <span>Mar 17, 7:33 PM</span>
-                </div>
-              </div>
-              <div>
-                <h3 className="text-center mb-1 md:mb-2">Lunar Position</h3>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>Moonrise:</span>
-                  <span>Mar 17, 10:57 PM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>Overhead:</span>
-                  <span>Mar 17, 3:50 AM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>Moonset:</span>
-                  <span>Mar 17, 8:55 AM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm">
-                  <span>Underfoot:</span>
-                  <span>Mar 17, 3:51 PM</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mb-3 md:mb-4 text-xs md:text-base">
-            <h3 className="font-semibold mb-1 md:mb-2">Peak Game Activity Times</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 md:gap-4">
-              <div>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>AM Minor:</span>
-                  <span className="text-right">7:55 AM / 9:55 AM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm">
-                  <span>AM Major:</span>
-                  <span className="text-right">2:38 AM / 5:30 AM</span>
-                </div>
-              </div>
-              <div>
-                <div className="flex justify-between text-xs md:text-sm mb-1">
-                  <span>PM Minor:</span>
-                  <span className="text-right">9:57 PM / 11:57 PM</span>
-                </div>
-                <div className="flex justify-between text-xs md:text-sm">
-                  <span>PM Major:</span>
-                  <span className="text-right">1:51 PM / 4:51 PM</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-center mb-3">
-            <Sun size={20} className="text-yellow-400 mr-2" />
-            <div className="w-40 h-2 bg-gray-700 rounded-full">
-              <div className="h-2 bg-yellow-400 rounded-full" style={{ width: '50%' }}></div>
-            </div>
-            <Moon size={20} className="text-blue-300 ml-2" />
-          </div>
-
-          <div className="text-xs text-center text-gray-400">
-            Based on current moon phase and solar/lunar positions
-          </div>
-        </div>
-      </div>
-
-      {/* 5 Day Forecast Toggle Button */}
-      <div className="absolute bottom-0 left-0 right-0 z-10">
-        <button
-          onClick={toggleForecast}
-          className="w-full bg-green-600 text-white py-1 md:py-2 font-semibold flex items-center justify-center"
-        >
-          5 DAY FORECAST
-          {showForecast ?
-            <ChevronDown className="ml-2" size={18} /> :
-            <ChevronUp className="ml-2" size={18} />
-          }
-        </button>
-
-        {/* Collapsible Forecast Content */}
-        <div className={`transition-all duration-300 ease-in-out overflow-hidden ${showForecast ? 'max-h-80' : 'max-h-0'}`}>
-          <div className="grid grid-cols-5 bg-gray-200 bg-opacity-80 text-xs md:text-base">
-            {forecast?.daily.map((day, index) => (
-              <div key={index} className="text-center p-2 md:p-4">
-                <div className="font-semibold">{formatShortDay(day.date)}</div>
-                <div className="text-xs text-gray-600">{formatMonthDay(day.date)}</div>
-                <div className="my-2 md:my-4 flex justify-center">
-                  <img
-                    src={`https://same-assets.com/${day.icon === '01d' ? '75fb4090-1e9e-495e-a9e3-36010d4aa5b3.png' : '68c2fcda-d23c-49c2-a3c7-6c92bf18c0a3.png'}`}
-                    alt={day.description}
-                    className="w-10 h-10 md:w-20 md:h-20"
-                  />
-                </div>
-                <div className="text-xs md:text-sm hidden md:block">{day.description}</div>
-                <div className="font-semibold mt-1 md:mt-2 text-xs md:text-base">
-                  {day.high}° / {day.low}°
-                </div>
-                <div className="mt-2 md:mt-4 text-center">
-                  <button className="bg-gray-400 text-white py-1 px-2 md:px-4 rounded-sm text-xs md:text-sm">
-                    DETAILS
-                  </button>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

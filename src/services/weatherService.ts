@@ -1,7 +1,5 @@
-import axios from 'axios';
-
 const API_KEY = import.meta.env.VITE_OPENWEATHER_API_KEY;
-const BASE_URL = 'https://api.openweathermap.org/data/2.5';
+const BASE_URL = 'https://api.weather.gov';
 
 export interface WeatherData {
   temperature: number;
@@ -31,6 +29,8 @@ export interface ForecastData {
     description: string;
     icon: string;
     precipChance: number;
+    moonPhase?: string;
+    moonIllumination?: number;
   }[];
   hourly: {
     time: number;
@@ -49,6 +49,28 @@ export interface MoonData {
   moonset: number;
   overhead: number;
   underfoot: number;
+}
+
+// Add this interface for Solunar data
+export interface SolunarData {
+  date: string;
+  dayRating: number;
+  majorPeriods: {
+    start: string;
+    end: string;
+    weight: number;
+  }[];
+  minorPeriods: {
+    start: string;
+    end: string;
+    weight: number;
+  }[];
+  sunrise: string;
+  sunset: string;
+  moonrise: string;
+  moonset: string;
+  moonPhase: string;
+  moonIllumination: number;
 }
 
 // Since we're mocking the API for now, provide mock data
@@ -166,40 +188,232 @@ export const getGameActivityTimes = () => {
   };
 };
 
-// In a real app, these functions would call the actual OpenWeather API
 export const getCurrentWeather = async (lat: number, lon: number): Promise<WeatherData> => {
   try {
-    // This would make a real API call
-    // const response = await axios.get(
-    //   `${BASE_URL}/weather?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=imperial`
-    // );
-    // Process the response...
+    const response = await fetch(
+      `${BASE_URL}/points/${lat.toFixed(4)},${lon.toFixed(4)}`,
+      {
+        headers: {
+          'User-Agent': '(wild-pursuit-ui, contact@wildpursuit.com)',
+          'Accept': 'application/geo+json'
+        }
+      }
+    );
 
-    // For now, return mock data
-    return getMockWeatherData();
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    // Process the response...
+    return getMockWeatherData(); // For now, still using mock data
   } catch (error) {
     console.error('Error fetching weather:', error);
-    return getMockWeatherData(); // Fallback to mock data
+    return getMockWeatherData();
   }
 };
 
 export const getForecast = async (lat: number, lon: number): Promise<ForecastData> => {
   try {
-    // This would make a real API call
-    // const response = await axios.get(
-    //   `${BASE_URL}/onecall?lat=${lat}&lon=${lon}&exclude=minutely,alerts&appid=${API_KEY}&units=imperial`
-    // );
-    // Process the response...
+    // First get the grid coordinates for the location
+    const pointResponse = await fetch(
+      `${BASE_URL}/points/${lat.toFixed(4)},${lon.toFixed(4)}`,
+      {
+        headers: {
+          'User-Agent': '(wild-pursuit-ui, contact@wildpursuit.com)',
+          'Accept': 'application/geo+json'
+        }
+      }
+    );
 
-    // For now, return mock data
-    return getMockForecastData();
+    if (!pointResponse.ok) {
+      throw new Error('Failed to get grid points');
+    }
+
+    const { properties } = await pointResponse.json();
+    
+    // Get both the regular forecast and hourly forecast
+    const [forecastResponse, hourlyResponse] = await Promise.all([
+      fetch(properties.forecast, {
+        headers: {
+          'User-Agent': '(wild-pursuit-ui, contact@wildpursuit.com)',
+          'Accept': 'application/geo+json'
+        }
+      }),
+      fetch(properties.forecastHourly, {
+        headers: {
+          'User-Agent': '(wild-pursuit-ui, contact@wildpursuit.com)',
+          'Accept': 'application/geo+json'
+        }
+      })
+    ]);
+
+    if (!forecastResponse.ok || !hourlyResponse.ok) {
+      throw new Error('Failed to fetch forecast data');
+    }
+
+    const forecastData = await forecastResponse.json();
+    const hourlyData = await hourlyResponse.json();
+
+    // Process daily forecast - NOAA provides day/night periods, so we need to combine them
+    const dailyPeriods = forecastData.properties.periods;
+    const daily = [];
+    
+    for (let i = 0; i < dailyPeriods.length; i += 2) {
+      if (dailyPeriods[i] && dailyPeriods[i + 1]) {
+        daily.push({
+          date: new Date(dailyPeriods[i].startTime).getTime(),
+          high: dailyPeriods[i].temperature, // Day temperature
+          low: dailyPeriods[i + 1].temperature, // Night temperature
+          description: dailyPeriods[i].shortForecast,
+          icon: getIconFromDescription(dailyPeriods[i].shortForecast),
+          precipChance: dailyPeriods[i].probabilityOfPrecipitation?.value || 0
+        });
+      }
+    }
+
+    const dailyForecast = daily.map(async (day) => {
+      // Get solunar data for each day
+      const date = new Date(day.date).toISOString().split('T')[0].replace(/-/g, '');
+      const solunarData = await getSolunarData(lat, lon, date);
+      
+      return {
+        ...day,
+        moonPhase: solunarData.moonPhase,
+        moonIllumination: solunarData.moonIllumination
+      };
+    });
+
+    // Process hourly forecast
+    const hourly = hourlyData.properties.periods
+      .slice(0, 24)
+      .map((period: any) => ({
+        time: new Date(period.startTime).getTime(),
+        temperature: period.temperature,
+        icon: getIconFromDescription(period.shortForecast),
+        precipChance: period.probabilityOfPrecipitation?.value || 0,
+        windSpeed: parseInt(period.windSpeed.split(' ')[0]),
+        windDirection: period.windDirection
+      }));
+
+    return { 
+      daily: await Promise.all(dailyForecast),
+      hourly 
+    };
   } catch (error) {
     console.error('Error fetching forecast:', error);
-    return getMockForecastData(); // Fallback to mock data
+    return getMockForecastData();
   }
+};
+
+// Helper function to calculate sunrise/sunset
+const calculateSunriseSunset = (lat: number, lon: number) => {
+  // This is a simplified calculation
+  const date = new Date();
+  const sunrise = new Date(date.setHours(6, 0, 0, 0)).getTime();
+  const sunset = new Date(date.setHours(20, 0, 0, 0)).getTime();
+  return { sunrise, sunset };
 };
 
 export const getMoonPhase = async (lat: number, lon: number): Promise<MoonData> => {
   // In a real app, we might use a specialized API for lunar data
   return getMockMoonData();
+};
+
+// Add the getSolunarData function
+export const getSolunarData = async (lat: number, lon: number, date?: string): Promise<SolunarData> => {
+  try {
+    const formattedDate = date || 
+      new Date().toISOString().split('T')[0].replace(/-/g, '');
+    
+    const tzOffset = -(new Date().getTimezoneOffset() / 60);
+    
+    const url = `https://api.solunar.org/solunar/${lat},${lon},${formattedDate},${tzOffset}`;
+    console.log('Fetching solunar data from:', url);
+    
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Solunar API Response:', data);
+    
+    // Map the API response to our interface
+    const solunarData: SolunarData = {
+      date: formattedDate,
+      dayRating: data.dayRating,
+      majorPeriods: [
+        {
+          start: data.major1Start,
+          end: data.major1Stop,
+          weight: data.hourlyRating[Math.floor(data.major1StartDec)] || 0
+        },
+        {
+          start: data.major2Start,
+          end: data.major2Stop,
+          weight: data.hourlyRating[Math.floor(data.major2StartDec)] || 0
+        }
+      ],
+      minorPeriods: [
+        {
+          start: data.minor1Start,
+          end: data.minor1Stop,
+          weight: data.hourlyRating[Math.floor(data.minor1StartDec)] || 0
+        },
+        {
+          start: data.minor2Start,
+          end: data.minor2Stop,
+          weight: data.hourlyRating[Math.floor(data.minor2StartDec)] || 0
+        }
+      ],
+      sunrise: data.sunRise,
+      sunset: data.sunSet,
+      moonrise: data.moonRise,
+      moonset: data.moonSet,
+      moonPhase: data.moonPhase,
+      moonIllumination: Math.round(data.moonIllumination * 100)
+    };
+
+    console.log('Processed Solunar Data:', solunarData);
+    return solunarData;
+  } catch (error) {
+    console.error('Error fetching solunar data:', error);
+    return getMockSolunarData();
+  }
+};
+
+// Update the mock data to match the interface
+const getMockSolunarData = (): SolunarData => {
+  return {
+    date: new Date().toISOString().split('T')[0],
+    dayRating: 5,
+    majorPeriods: [
+      { start: '00:08', end: '02:09', weight: 80 },
+      { start: '12:28', end: '14:28', weight: 80 }
+    ],
+    minorPeriods: [
+      { start: '19:39', end: '20:39', weight: 100 },
+      { start: '06:25', end: '07:25', weight: 80 }
+    ],
+    sunrise: '7:11',
+    sunset: '20:08',
+    moonrise: '20:09',
+    moonset: '6:55',
+    moonPhase: 'Waning Gibbous',
+    moonIllumination: 99
+  };
+};
+
+// Helper function to map NOAA descriptions to icons
+const getIconFromDescription = (description: string): string => {
+  const desc = description.toLowerCase();
+  if (desc.includes('sun') || desc.includes('clear')) return '01d';
+  if (desc.includes('cloud')) return '03d';
+  if (desc.includes('rain') || desc.includes('shower')) return '10d';
+  if (desc.includes('storm') || desc.includes('thunder')) return '11d';
+  if (desc.includes('snow')) return '13d';
+  if (desc.includes('fog') || desc.includes('mist')) return '50d';
+  return '02d'; // Default to partly cloudy
 };
