@@ -8,7 +8,6 @@ import {
   db,
 } from "../firebase";
 import { HuntArea, Marker, MarkerType } from '../types/types';
-export type { Marker, MarkerType } from '../types/types';
 import { collection, getDocs } from "firebase/firestore";
 
 // Types
@@ -156,7 +155,7 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             id: marker.id || '',
             latitude: marker.latitude || 0,
             longitude: marker.longitude || 0,
-            type: marker.type || 'tree-stand',
+            type: (marker.type as MarkerType) || 'custom',
             name: marker.name || 'Unnamed Marker',
             notes: marker.notes || '',
             createdBy: marker.createdBy || '',

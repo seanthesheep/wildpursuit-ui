@@ -1,6 +1,6 @@
 import React from 'react';
 import { Map, Home, Camera, Triangle, Square, Box, Target } from 'react-feather';
-import { MarkerType } from '../../contexts/MapContext';
+import { MarkerType } from '../../types/types';
 
 interface MarkerIconProps {
   type: MarkerType;

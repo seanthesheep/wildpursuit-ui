@@ -16,7 +16,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 // Set the access token directly - using a dedicated token for this project
-mapboxgl.accessToken = 'pk.eyJ1Ijoic3N1bGxpdmFuZGV2IiwiYSI6ImNtOGN6azhnejBqZWkybHBzbXBvc3RqOTYifQ.jqD31E5Hd0xtu16Oy45uIA';
+mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 const WeatherPage: React.FC = () => {
   const { mapLocation } = useMap();
@@ -68,7 +68,7 @@ const WeatherPage: React.FC = () => {
 
   // Add this helper function in Weather.tsx
   const getMoonIcon = (phase: string) => {
-    const phases: { [key: string]: string } = {
+    const phases: Record<string, string> = {
       'New Moon': '🌑',
       'Waxing Crescent': '🌒',
       'First Quarter': '🌓',
@@ -446,8 +446,10 @@ const WeatherPage: React.FC = () => {
                   </div>
                   {/* Moon Phase */}
                   <div className="mt-2 text-xs text-gray-300">
-                    <div className="text-lg">{getMoonIcon(day.moonPhase)}</div>
-                    <div>{day.moonIllumination}%</div>
+                    <div className="text-lg">
+                      {day.moonPhase ? getMoonIcon(day.moonPhase) : '🌑'}
+                    </div>
+                    <div>{day.moonIllumination ?? 0}%</div>
                   </div>
                 </div>
               ))}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { X } from 'react-feather';
-import { Marker, MarkerType } from '../../contexts/MapContext';
+import { Marker, MarkerType } from '../../types/types';
 import CustomMarkerIcon from './CustomMarkerIcon';
 import { useUser } from '../../contexts/UserContext';
 import CameraMarkerPopup from './CameraMarkerPopup';
@@ -14,12 +14,72 @@ interface MarkerDetailsPanelProps {
 }
 
 const markerTypeNames: Record<MarkerType, string> = {
+  // Stands
   'tree-stand': 'Tree Stand',
+  'leaner-tripod': 'Leaner/Tripod',
+  'hang-on': 'Hang On',
+  'climber-stand': 'Climber Stand',
+  'ground-blind': 'Ground Blind',
   'blind': 'Blind',
+  'custom-stand': 'Custom Stand',
+
+  // Property Features
   'food-plot': 'Food Plot',
-  'feeder': 'Feeder',
+  'club-camp': 'Club/Camp',
+  'gate': 'Gate',
   'parking': 'Parking',
-  'camera': 'Trail Camera'
+  'ag-field': 'Ag Field',
+  'feeder': 'Feeder',
+  'bait-pile': 'Bait Pile',
+  'custom-property': 'Custom Property',
+
+  // Harvest
+  'buck-harvest': 'Buck Harvest',
+  'doe-harvest': 'Doe Harvest',
+  'turkey-harvest': 'Turkey Harvest',
+  'waterfowl-harvest': 'Waterfowl Harvest',
+  'hog-harvest': 'Hog Harvest',
+  'geese-harvest': 'Geese Harvest',
+  'duck-harvest': 'Duck Harvest',
+  'pronghorn-harvest': 'Pronghorn Harvest',
+  'custom-harvest': 'Custom Harvest',
+
+  // Sightings
+  'buck-sighting': 'Buck Sighting',
+  'doe-sighting': 'Doe Sighting',
+  'turkey-sighting': 'Turkey Sighting',
+  'waterfowl-sighting': 'Waterfowl Sighting',
+  'hog-sighting': 'Hog Sighting',
+  'geese-sighting': 'Geese Sighting',
+  'duck-sighting': 'Duck Sighting',
+  'pronghorn-sighting': 'Pronghorn Sighting',
+  'custom-sighting': 'Custom Sighting',
+
+  // Scouting
+  'track': 'Track',
+  'blood-trail': 'Blood Trail',
+  'bedding': 'Bedding',
+  'buck-rub': 'Buck Rub',
+  'buck-scrape': 'Buck Scrape',
+  'droppings': 'Droppings',
+  'trail-crossing': 'Trail Crossing',
+  'food-source': 'Food Source',
+  'glassing-point': 'Glassing Point',
+  'buck-shed': 'Buck Shed',
+
+  // Turkey Specific
+  'turkey-tracks': 'Turkey Tracks',
+  'turkey-scratching': 'Turkey Scratching',
+  'turkey-scat': 'Turkey Scat',
+  'turkey-roost': 'Turkey Roost',
+  'turkey-gobble': 'Turkey Gobble',
+  'turkey-setup': 'Turkey Setup',
+  'turkey-custom': 'Turkey Custom',
+
+  // Other
+  'camera': 'Trail Camera',
+  'hazard': 'Hazard',
+  'custom': 'Custom'
 };
 
 const MarkerDetailsPanel: React.FC<MarkerDetailsPanelProps> = ({

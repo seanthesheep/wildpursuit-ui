@@ -1,5 +1,5 @@
 import React from 'react';
-import { MarkerType } from '../../contexts/MapContext';
+import { MarkerType } from '../../types/types';
 
 interface CustomMarkerIconProps {
   type: MarkerType;
