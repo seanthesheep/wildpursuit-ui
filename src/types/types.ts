@@ -79,6 +79,7 @@ export interface HuntArea {
   sharedWith?: string[];
   createdBy?: string;
   clubId?: string;
+  state?: string;
 }
 
 export interface CameraPhoto {

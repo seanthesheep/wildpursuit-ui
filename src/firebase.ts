@@ -1,3 +1,4 @@
+
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import {
@@ -24,6 +25,16 @@ import {
 } from "firebase/firestore";
 import { HuntArea, Marker } from './types/types';
 import { hashCredentials } from './utils/encryption';
+
+// Types
+interface Club {
+  id: string;
+  name: string;
+  location?: string;
+  notes?: string;
+  createdBy: string;
+  clubId: string;
+}
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -241,6 +252,38 @@ export const getSpypointCredentials = async (
   }
   
   return docSnap.data() as SpypointCredentials;
+};
+
+// Add a new hunt club to Firestore
+export const addHuntClubToFirestore = async (club: Club): Promise<string> => {
+  try {
+    const docRef = await addDoc(collection(db, 'huntClubs'), club);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding hunt club to Firestore:', error);
+    throw error;
+  }
+};
+
+// Fetch hunt clubs from Firestore
+export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
+  try {
+    const querySnapshot = await getDocs(collection(db, "huntClubs"));
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || "Unnamed Club",
+        location: data.location || "",
+        notes: data.notes || "",
+        createdBy: data.createdBy || "",
+        clubId: data.clubId || "",
+      } as Club;
+    });
+  } catch (error) {
+    console.error("Error fetching hunt clubs:", error);
+    throw error;
+  }
 };
 
 export { auth, db, provider };

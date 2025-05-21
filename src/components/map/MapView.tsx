@@ -10,10 +10,17 @@ import CameraMarkerPopup from './CameraMarkerPopup';
 import MarkerDetailsPanel from './MarkerDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
 import { HuntArea, Marker, MarkerType } from '../../types/types';
-import { addMarkerToFirestore, updateMarkerInFirestore } from '../../firebase';
+import { addMarkerToFirestore, updateMarkerInFirestore, addHuntClubToFirestore } from '../../firebase';
+import debounce from 'lodash/debounce';
 
 // Mapbox access token
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+
+// Mapbox Geocoding API endpoint
+const GEOCODING_API = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
+
+// Mock API endpoint for hunt clubs/outfitters (replace with actual API)
+const CLUBS_API = 'https://api.example.com/clubs';
 
 interface ViewState {
   latitude: number;
@@ -23,15 +30,21 @@ interface ViewState {
   pitch: number;
 }
 
+interface Club {
+  id: string;
+  name: string;
+  location?: string;
+  notes?: string;
+  createdBy: string;
+  clubId: string;
+}
+
 const MarkerTypes = [
-  // Stands
   { id: 'leaner-tripod', name: 'Leaner/Tripod', color: 'orange', icon: '/svgs/tree-stand.svg' },
   { id: 'hang-on', name: 'Hang On', color: 'orange', icon: '/svgs/tree-stand.svg' },
   { id: 'climber-stand', name: 'Climber Stand', color: 'orange', icon: '/svgs/tree-stand.svg' },
   { id: 'ground-blind', name: 'Ground Blind', color: 'orange', icon: '/svgs/blind.svg' },
   { id: 'custom-stand', name: 'Custom Stand', color: 'orange', icon: '/svgs/Custom.svg' },
-
-  // Property Features
   { id: 'food-plot', name: 'Food Plot', color: 'green', icon: '/svgs/food-plot.svg' },
   { id: 'club-camp', name: 'Club/Camp', color: 'green', icon: '/svgs/Custom.svg' },
   { id: 'gate', name: 'Gate', color: 'green', icon: '/svgs/Gate.svg' },
@@ -40,8 +53,6 @@ const MarkerTypes = [
   { id: 'feeder', name: 'Feeder', color: 'green', icon: '/svgs/Freeder.svg' },
   { id: 'bait-pile', name: 'Bait Pile', color: 'green', icon: '/svgs/other Food Source.svg' },
   { id: 'custom-property', name: 'Custom Property', color: 'green', icon: '/svgs/Custom.svg' },
-
-  // Harvest
   { id: 'buck-harvest', name: 'Buck', color: 'red', icon: '/svgs/Buck.svg' },
   { id: 'doe-harvest', name: 'Doe', color: 'red', icon: '/svgs/Doe.svg' },
   { id: 'turkey-harvest', name: 'Turkey', color: 'red', icon: '/svgs/Turkey.svg' },
@@ -51,8 +62,6 @@ const MarkerTypes = [
   { id: 'duck-harvest', name: 'Duck', color: 'red', icon: '/svgs/Duck.svg' },
   { id: 'pronghorn-harvest', name: 'Pronghorn', color: 'red', icon: '/svgs/Pronghom.svg' },
   { id: 'custom-harvest', name: 'Custom Harvest', color: 'red', icon: '/svgs/Custom.svg' },
-
-  // Sightings
   { id: 'buck-sighting', name: 'Buck', color: 'blue', icon: '/svgs/Buck.svg' },
   { id: 'doe-sighting', name: 'Doe', color: 'blue', icon: '/svgs/Doe.svg' },
   { id: 'turkey-sighting', name: 'Turkey', color: 'blue', icon: '/svgs/Turkey.svg' },
@@ -62,8 +71,6 @@ const MarkerTypes = [
   { id: 'duck-sighting', name: 'Duck', color: 'blue', icon: '/svgs/Duck.svg' },
   { id: 'pronghorn-sighting', name: 'Pronghorn', color: 'blue', icon: '/svgs/Pronghom.svg' },
   { id: 'custom-sighting', name: 'Custom Sighting', color: 'blue', icon: '/svgs/Custom.svg' },
-
-  // Scouting
   { id: 'track', name: 'Track', color: 'yellow', icon: '/svgs/Tracks.svg' },
   { id: 'blood-trail', name: 'Blood Trail', color: 'red', icon: '/svgs/Blood Trial.svg' },
   { id: 'bedding', name: 'Bedding', color: 'yellow', icon: '/svgs/Bedding.svg' },
@@ -74,8 +81,6 @@ const MarkerTypes = [
   { id: 'food-source', name: 'Food Source', color: 'yellow', icon: '/svgs/other Food Source.svg' },
   { id: 'glassing-point', name: 'Glassing Point', color: 'yellow', icon: '/svgs/Custom.svg' },
   { id: 'buck-shed', name: 'Buck Shed', color: 'white', icon: '/svgs/Buck Shed.svg' },
-
-  // Turkey Specific
   { id: 'turkey-tracks', name: 'Turkey Tracks', color: 'yellow', icon: '/svgs/Tracks.svg' },
   { id: 'turkey-scratching', name: 'Turkey Scratching', color: 'yellow', icon: '/svgs/Custom.svg' },
   { id: 'turkey-scat', name: 'Turkey Scat', color: 'yellow', icon: '/svgs/Scat.svg' },
@@ -83,8 +88,6 @@ const MarkerTypes = [
   { id: 'turkey-gobble', name: 'Gobble Heard', color: 'yellow', icon: '/svgs/Custom.svg' },
   { id: 'turkey-setup', name: 'Set Up Location', color: 'yellow', icon: '/svgs/Custom.svg' },
   { id: 'turkey-custom', name: 'Custom Turkey', color: 'yellow', icon: '/svgs/Custom.svg' },
-
-  // Other
   { id: 'camera', name: 'Trail Camera', color: 'yellow', icon: '/svgs/trail camera.svg' },
   { id: 'hazard', name: 'Hazard', color: 'red', icon: '/svgs/Hazard.svg' },
   { id: 'custom', name: 'Custom', color: 'white', icon: '/svgs/Custom.svg' },
@@ -106,7 +109,8 @@ const MapView: React.FC = () => {
     updateMarker,
     getHuntAreasFromFirestore,
     addHuntAreaToFirestore,
-    // Other destructured values...
+    huntClubs,
+    setHuntClubs,
   } = useMap();
 
   const { user } = useUser();
@@ -124,9 +128,9 @@ const MapView: React.FC = () => {
     bearing: 0,
     pitch: 0,
   });
-
   const [huntAreas, setHuntAreas] = useState<HuntArea[]>([]);
-  const [showHuntAreaPopup, setShowHuntAreaPopup] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'hunt-areas' | 'hunt-clubs'>('hunt-areas');
   const [clickedPoint, setClickedPoint] = useState<{ longitude: number; latitude: number } | null>(null);
   const [addingMarker, setAddingMarker] = useState(false);
   const [selectedMarkerType, setSelectedMarkerType] = useState<MarkerType>('tree-stand');
@@ -135,13 +139,144 @@ const MapView: React.FC = () => {
   const [markerDetails, setMarkerDetails] = useState<any>(null);
   const [newHuntAreaName, setNewHuntAreaName] = useState('');
   const [newHuntAreaNotes, setNewHuntAreaNotes] = useState('');
+  const [newHuntAreaBounds, setNewHuntAreaBounds] = useState<[number, number, number, number]>([0, 0, 0, 0]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [clubSearchQuery, setClubSearchQuery] = useState('');
+  const [clubSuggestions, setClubSuggestions] = useState<any[]>([]);
+  const [clubSearchError, setClubSearchError] = useState<string | null>(null);
+  const [isClubSearching, setIsClubSearching] = useState(false);
+  const [selectedClub, setSelectedClub] = useState<any>(null);
+
+  // Debug state updates
+  useEffect(() => {
+    console.log('Search state:', { searchQuery, placeSuggestions, newHuntAreaBounds, searchError, isSearching });
+  }, [searchQuery, placeSuggestions, newHuntAreaBounds, searchError, isSearching]);
 
   // Utility function to detect mobile devices
   const isMobileDevice = () => {
     return /Mobi|Android/i.test(navigator.userAgent);
   };
 
-  // Initialize map when component mounts
+  // Debounced search function for place suggestions (Hunt Areas)
+  const fetchPlaceSuggestions = useCallback(
+    debounce(async (query: string) => {
+      if (!query) {
+        setPlaceSuggestions([]);
+        setSearchError(null);
+        return;
+      }
+
+      setIsSearching(true);
+      setSearchError(null);
+      try {
+        const response = await fetch(
+          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${
+            import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+          }&types=place,locality,region,country&limit=5`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch place suggestions');
+        }
+        const data = await response.json();
+        console.log('Fetched place suggestions:', data.features);
+        setPlaceSuggestions(data.features || []);
+        if (!data.features.length) {
+          setSearchError('No places found for your query.');
+        }
+      } catch (error) {
+        console.error('Error fetching place suggestions:', error);
+        setSearchError('Error fetching places. Please try again.');
+        setPlaceSuggestions([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300),
+    []
+  );
+
+  // Debounced search function for club/outfitter suggestions
+  const fetchClubSuggestions = useCallback(
+    debounce(async (query: string) => {
+      if (!query) {
+        setClubSuggestions([]);
+        setClubSearchError(null);
+        return;
+      }
+      setIsClubSearching(true);
+      setClubSearchError(null);
+      try {
+        const response = await fetch(`${CLUBS_API}?query=${encodeURIComponent(query)}&limit=5`);
+        if (!response.ok) throw new Error('Failed to fetch club suggestions');
+        const data = await response.json();
+        setClubSuggestions(data.results || []);
+        if (!data.results.length) setClubSearchError('No clubs/outfitters found for your query.');
+      } catch (error) {
+        console.error('Error fetching club suggestions:', error);
+        setClubSearchError('Error fetching clubs. Please try again.');
+        setClubSuggestions([]);
+      } finally {
+        setIsClubSearching(false);
+      }
+    }, 300),
+    []
+  );
+
+  // Handle search input change for Hunt Areas
+  useEffect(() => {
+    fetchPlaceSuggestions(searchQuery);
+  }, [searchQuery, fetchPlaceSuggestions]);
+
+  // Handle search input change for Clubs/Outfitters
+  useEffect(() => {
+    fetchClubSuggestions(clubSearchQuery);
+  }, [clubSearchQuery, fetchClubSuggestions]);
+
+  // Handle place selection for Hunt Areas
+  const handlePlaceSelect = (place: any) => {
+    const [lng, lat] = place.center;
+    const bounds: [number, number, number, number] = [
+      lng - 0.01,
+      lat - 0.01,
+      lng + 0.01,
+      lat + 0.01,
+    ];
+    setNewHuntAreaBounds(bounds);
+    setMapLocation({ latitude: lat, longitude: lng, zoom: 12 });
+    setSearchQuery(place.place_name);
+    setPlaceSuggestions([]);
+    setSearchError(null);
+    console.log('Place selected:', { place: place.place_name, bounds, center: { lng, lat } });
+  };
+
+  // Clear search input for Hunt Areas
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setPlaceSuggestions([]);
+    setSearchError(null);
+    setNewHuntAreaBounds([0, 0, 0, 0]);
+    console.log('Search cleared');
+  };
+
+  // Handle club selection for adding a new club
+  const handleClubSelect = (club: any) => {
+    setSelectedClub(club);
+    setClubSearchQuery(club.name);
+    setClubSuggestions([]);
+    setClubSearchError(null);
+  };
+
+  // Clear club search input
+  const handleClearClubSearch = () => {
+    setClubSearchQuery('');
+    setClubSuggestions([]);
+    setClubSearchError(null);
+    setSelectedClub(null);
+  };
+
+  // Initialize map without geocoder
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -163,7 +298,6 @@ const MapView: React.FC = () => {
         'bottom-right'
       );
 
-      // Add click event listener to the map
       map.current.on('click', (e) => {
         if (addingMarker) {
           setClickedPoint({
@@ -182,8 +316,9 @@ const MapView: React.FC = () => {
         map.current = null;
       }
     };
-  }, [addingMarker]); // Add `addingMarker` as a dependency
+  }, [addingMarker, setMapLocation]);
 
+  // Handle drag and zoom restrictions during marker placement
   useEffect(() => {
     if (!map.current) return;
 
@@ -208,7 +343,6 @@ const MapView: React.FC = () => {
       const { lng, lat } = map.current.getCenter();
       const zoom = map.current.getZoom();
 
-      // Debounce updates to React state
       clearTimeout(timeout);
       timeout = setTimeout(() => {
         setMapLocation({
@@ -216,7 +350,7 @@ const MapView: React.FC = () => {
           longitude: lng,
           zoom,
         });
-      }, 200); // Adjust debounce delay as needed
+      }, 200);
     };
 
     map.current.on('move', moveHandler);
@@ -235,91 +369,84 @@ const MapView: React.FC = () => {
       try {
         const areas = await getHuntAreasFromFirestore();
         console.log('Fetched hunt areas:', areas);
-        setHuntAreas(areas); // Now the data matches the HuntArea type
+        setHuntAreas(areas);
       } catch (error) {
-        console.error("Error fetching hunt areas:", error);
+        console.error('Error fetching hunt areas:', error);
       }
     };
 
     fetchHuntAreas();
-  }, []);
+  }, [getHuntAreasFromFirestore]);
 
+  // Fetch markers for the current hunt area
   useEffect(() => {
     const fetchMarkers = async () => {
       if (!currentHuntArea?.id) return;
 
       try {
         const fetchedMarkers = await getMarkersForHuntArea(currentHuntArea.id);
-        setMarkers(fetchedMarkers); // Update the markers state
+        setMarkers(fetchedMarkers);
       } catch (error) {
-        console.error("Error fetching markers:", error);
+        console.error('Error fetching markers:', error);
       }
     };
 
     fetchMarkers();
-  }, [currentHuntArea]);
+  }, [currentHuntArea, getMarkersForHuntArea, setMarkers]);
 
   // Add or update markers on the map
   useEffect(() => {
     if (!map.current) return;
 
-    // Clear existing marker references and popups
     Object.values(mapMarkers.current).forEach((marker) => marker.remove());
     Object.values(mapPopups.current).forEach((popup) => popup.remove());
     mapMarkers.current = {};
     mapPopups.current = {};
 
-    // Add new markers
-    markers.forEach((marker) => {
-      // Create marker element
-      const markerEl = document.createElement("div");
+    markers.forEach((marker: any) => {
+      const markerEl = document.createElement('div');
       markerEl.innerHTML = `<div class="marker-container" data-id="${marker.id}"></div>`;
-      markerEl.style.cursor = "pointer";
+      markerEl.style.cursor = 'pointer';
 
-      // Add the marker to the map
       const mapboxMarker = new mapboxgl.Marker(markerEl)
         .setLngLat([marker.longitude, marker.latitude])
         .addTo(map.current!);
 
-      // Store reference to the marker
       mapMarkers.current[marker.id] = mapboxMarker;
 
-      // Add marker icon to the container element
-      const container = markerEl.querySelector(".marker-container") as HTMLElement;
+      const container = markerEl.querySelector('.marker-container') as HTMLElement;
       if (container) {
-        const iconEl = document.createElement("img");
-        iconEl.src = MarkerTypes.find((type) => type.id === marker.type)?.icon || "/svgs/default.svg";
+        const iconEl = document.createElement('img');
+        iconEl.src = MarkerTypes.find((type) => type.id === marker.type)?.icon || '/svgs/default.svg';
         iconEl.alt = marker.type;
-        iconEl.style.width = "48px";
-        iconEl.style.height = "48px";
-        iconEl.style.transform = "translate(-50%, -50%)";
-        iconEl.style.position = "absolute";
-        iconEl.style.top = "50%";
-        iconEl.style.left = "50%";
+        iconEl.style.width = '48px';
+        iconEl.style.height = '48px';
+        iconEl.style.transform = 'translate(-50%, -50%)';
+        iconEl.style.position = 'absolute';
+        iconEl.style.top = '50%';
+        iconEl.style.left = '50%';
         container.appendChild(iconEl);
 
-        // Update container styles
-        container.style.display = "block";
-        container.style.position = "relative";
-        container.style.width = "48px";
-        container.style.height = "48px";
+        container.style.display = 'block';
+        container.style.position = 'relative';
+        container.style.width = '48px';
+        container.style.height = '48px';
       }
 
-      // Add click event listener to show marker details
-      markerEl.addEventListener("click", (e) => {
+      markerEl.addEventListener('click', (e) => {
         e.stopPropagation();
         setSelectedMarkerId(marker.id);
         setMarkerDetails(marker);
       });
     });
 
-    // Cleanup function
     return () => {
       Object.values(mapMarkers.current).forEach((marker) => marker.remove());
       Object.values(mapPopups.current).forEach((popup) => popup.remove());
     };
-  }, [markers]);
+  }, [markers, setSelectedMarkerId]);
 
+  // Temporary marker for adding new marker
   useEffect(() => {
     if (!map.current || !clickedPoint) return;
 
@@ -332,19 +459,17 @@ const MapView: React.FC = () => {
     };
   }, [clickedPoint]);
 
-  // Handle form submission for adding a new marker
+  // Handle adding a new marker
   const handleAddMarker = async () => {
-    if (!clickedPoint || !newMarkerName) return;
-
-    if (!currentHuntArea?.id) {
-      console.error("No hunt area selected. Cannot add marker.");
+    if (!clickedPoint || !newMarkerName || !currentHuntArea?.id) {
+      console.error('Missing required fields or hunt area');
       return;
     }
 
     const newMarker: Marker = {
       id: uuidv4(),
-      latitude: clickedPoint?.latitude || 0,
-      longitude: clickedPoint?.longitude || 0,
+      latitude: clickedPoint.latitude,
+      longitude: clickedPoint.longitude,
       type: selectedMarkerType,
       name: newMarkerName,
       notes: newMarkerNotes,
@@ -352,19 +477,19 @@ const MapView: React.FC = () => {
       inUse: false,
       assignedTo: null,
       dateCreated: new Date().toISOString(),
-      huntAreaId: currentHuntArea?.id || '',
+      huntAreaId: currentHuntArea.id,
     };
 
     try {
       const id = await addMarkerToFirestore(newMarker);
-      setMarkers(prev => [...prev, { ...newMarker, id }] as Marker[]);
+      setMarkers((prev: any) => [...prev, { ...newMarker, id }] as Marker[]);
       setAddingMarker(false);
       setClickedPoint(null);
       setNewMarkerName('');
       setNewMarkerNotes('');
-      console.log("Marker added with ID:", id);
+      console.log('Marker added with ID:', id);
     } catch (error) {
-      console.error("Error adding marker:", error);
+      console.error('Error adding marker:', error);
     }
   };
 
@@ -374,52 +499,46 @@ const MapView: React.FC = () => {
     setMarkerDetails(null);
   };
 
-  // Toggle marker usage status (for admins)
+  // Toggle marker usage status
   const handleToggleMarkerUsage = (id: string, inUse: boolean) => {
-    const marker = markers.find(m => m.id === id);
+    const marker = markers.find((m: any) => m.id === id);
     if (marker) {
       updateMarker(id, { inUse: !inUse });
-
-      // Also update the local state if this is the selected marker
       if (markerDetails?.id === id) {
-        setMarkerDetails({...markerDetails, inUse: !inUse});
+        setMarkerDetails({ ...markerDetails, inUse: !inUse });
       }
     }
   };
 
-  // Assign marker to a hunter (for admins)
+  // Assign marker to a hunter
   const handleAssignMarker = (id: string, hunterId: string | null) => {
-    const marker = markers.find(m => m.id === id);
+    const marker = markers.find((m: any) => m.id === id);
     if (marker) {
       updateMarker(id, {
         assignedTo: hunterId,
         inUse: !!hunterId,
       });
-
-      // Also update the local state if this is the selected marker
       if (markerDetails?.id === id) {
         setMarkerDetails({
           ...markerDetails,
           assignedTo: hunterId,
-          inUse: !!hunterId
+          inUse: !!hunterId,
         });
       }
     }
   };
 
-  // Update marker function
+  // Update marker
   const handleUpdateMarker = async (id: string, updatedFields: Partial<Marker>) => {
     try {
       await updateMarkerInFirestore(id, updatedFields);
-      setMarkers(prev => 
-        prev.map(marker => 
-          marker.id === id
-            ? { ...marker, ...updatedFields } as Marker
-            : marker
+      setMarkers((prev: Marker[]) =>
+        prev.map((marker: Marker) =>
+          marker.id === id ? { ...marker, ...updatedFields } as Marker : marker
         )
       );
     } catch (error) {
-      console.error("Error updating marker:", error);
+      console.error('Error updating marker:', error);
     }
   };
 
@@ -436,45 +555,121 @@ const MapView: React.FC = () => {
     }
   };
 
+  // Handle adding a new hunt area
   const handleAddHuntArea = async () => {
-    if (!newHuntAreaName) return;
+    if (!newHuntAreaName) {
+      alert('Please enter a hunt area name.');
+      return;
+    }
+    if (newHuntAreaBounds.some((coord) => coord === 0)) {
+      alert('Please select a valid location for the hunt area.');
+      return;
+    }
 
     const newHuntArea: HuntArea = {
-      id: '', // This will be updated with the Firestore ID
+      id: '',
       name: newHuntAreaName,
       notes: newHuntAreaNotes,
-      markers: [], // Initially empty
-      bounds: [mapLocation.longitude - 0.01, mapLocation.latitude - 0.01, mapLocation.longitude + 0.01, mapLocation.latitude + 0.01], // Example bounds
+      markers: [],
+      bounds: newHuntAreaBounds,
       lastUpdated: new Date().toISOString(),
       shared: false,
       sharedWith: [],
-      createdBy: user?.id || '', // Associate with the current user
-      clubId: 'default-club', // Example club ID
+      createdBy: user?.id || '',
+      clubId: 'default-club',
     };
 
     try {
-      const id = await addHuntAreaToFirestore(newHuntArea); // Save to Firestore
-      setHuntAreas((prev) => [...prev, { ...newHuntArea, id }]); // Update local state
-      setShowHuntAreaPopup(false);
+      const id = await addHuntAreaToFirestore(newHuntArea);
+      const createdHuntArea = { ...newHuntArea, id };
+      setHuntAreas((prev) => [...prev, createdHuntArea]);
+
+      // Set the new hunt area as the current hunt area
+      setCurrentHuntArea(createdHuntArea);
+
+      // Calculate the center of the bounds
+      const [minLng, minLat, maxLng, maxLat] = newHuntAreaBounds;
+      const centerLng = (minLng + maxLng) / 2;
+      const centerLat = (minLat + maxLat) / 2;
+
+      // Add a marker at the center of the new hunt area
+      const newMarker: Marker = {
+        id: uuidv4(),
+        latitude: centerLat,
+        longitude: centerLng,
+        type: 'custom' as MarkerType,
+        name: `${newHuntAreaName} Center`,
+        notes: `Center marker for ${newHuntAreaName}`,
+        createdBy: user?.id || '',
+        inUse: false,
+        assignedTo: null,
+        dateCreated: new Date().toISOString(),
+        huntAreaId: id,
+      };
+
+      const markerId = await addMarkerToFirestore(newMarker);
+      addMarker(newMarker);
+      setMarkers((prev: any) => [...prev, { ...newMarker, id: markerId }] as Marker[]);
+
+      console.log('Hunt area added with ID:', id);
+      console.log('Marker added at center:', { markerId, centerLng, centerLat });
+
+      setShowAddModal(false);
       setNewHuntAreaName('');
       setNewHuntAreaNotes('');
-      console.log('Hunt area added with ID:', id);
+      setNewHuntAreaBounds([0, 0, 0, 0]);
+      setSearchQuery('');
+      setPlaceSuggestions([]);
+      setSearchError(null);
     } catch (error) {
       console.error('Error adding hunt area:', error);
+      alert('Failed to add hunt area. Please try again.');
+    }
+  };
+
+  // Handle adding a new hunt club
+  const handleAddHuntClub = async () => {
+    if (!selectedClub) {
+      alert('Please select a club or outfitter.');
+      return;
+    }
+
+    const newClub: Club = {
+      id: uuidv4(),
+      name: selectedClub.name,
+      location: selectedClub.location || '',
+      notes: newHuntAreaNotes,
+      createdBy: user?.id || '',
+      clubId: 'default-club',
+    };
+
+    try {
+      const id = await addHuntClubToFirestore(newClub);
+      setHuntClubs([...huntClubs, { ...newClub, id }]);
+      alert('Club/outfitter added successfully!');
+      setShowAddModal(false);
+      setClubSearchQuery('');
+      setClubSuggestions([]);
+      setClubSearchError(null);
+      setSelectedClub(null);
+      setNewHuntAreaNotes('');
+    } catch (error) {
+      console.error('Error adding hunt club:', error);
+      alert('Failed to add club/outfitter. Please try again.');
     }
   };
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={mapContainer} className="absolute top-0 bottom-0 left-0 right-0" />
+    <div className="relative h-[500px] w-full">
+      <div ref={mapContainer} className="absolute top-0 bottom-0 left-0 right-0 rounded-md" />
 
       {/* Map Tools */}
-      {/* <div className="absolute top-4 right-4 bg-white rounded-md shadow-md p-2 flex flex-col space-y-2 z-10">
+      <div className="absolute top-4 right-4 bg-white rounded-md shadow-md p-2 flex flex-col space-y-2 z-10">
         <button className="p-2 hover:bg-gray-100 rounded-md">
           <Layers size={20} />
         </button>
         <button className="p-2 hover:bg-gray-100 rounded-md">
-          <  size={20} />
+          <Search size={20} />
         </button>
         <button className="p-2 hover:bg-gray-100 rounded-md">
           <Compass size={20} />
@@ -489,19 +684,13 @@ const MapView: React.FC = () => {
           <Crosshair size={20} />
         </button>
         <div className="border-t border-gray-200 pt-2"></div>
-        <button
-          className="p-2 hover:bg-gray-100 rounded-md"
-          onClick={handleZoomIn}
-        >
+        <button className="p-2 hover:bg-gray-100 rounded-md" onClick={handleZoomIn}>
           <Plus size={20} />
         </button>
-        <button
-          className="p-2 hover:bg-gray-100 rounded-md"
-          onClick={handleZoomOut}
-        >
+        <button className="p-2 hover:bg-gray-100 rounded-md" onClick={handleZoomOut}>
           <Minus size={20} />
         </button>
-      </div> */}
+      </div>
 
       {/* Add Marker Form */}
       {addingMarker && (
@@ -510,7 +699,7 @@ const MapView: React.FC = () => {
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              handleAddMarker(); // Call the function to add the marker
+              handleAddMarker();
             }}
           >
             <div className="mb-4">
@@ -540,37 +729,43 @@ const MapView: React.FC = () => {
                 onChange={(e) => setSelectedMarkerType(e.target.value as MarkerType)}
               >
                 <optgroup label="Stands">
-                  {MarkerTypes.filter(type => ['leaner-tripod', 'hang-on', 'climber-stand', 'ground-blind', 'custom-stand'].includes(type.id)).map((type) => (
+                  {MarkerTypes.filter((type) =>
+                    ['leaner-tripod', 'hang-on', 'climber-stand', 'ground-blind', 'custom-stand'].includes(type.id)
+                  ).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Property Features">
-                  {MarkerTypes.filter(type => ['food-plot', 'club-camp', 'gate', 'parking', 'ag-field', 'feeder', 'bait-pile', 'custom-property'].includes(type.id)).map((type) => (
+                  {MarkerTypes.filter((type) =>
+                    ['food-plot', 'club-camp', 'gate', 'parking', 'ag-field', 'feeder', 'bait-pile', 'custom-property'].includes(type.id)
+                  ).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Harvest">
-                  {MarkerTypes.filter(type => type.id.endsWith('-harvest')).map((type) => (
+                  {MarkerTypes.filter((type) => type.id.endsWith('-harvest')).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Sightings">
-                  {MarkerTypes.filter(type => type.id.endsWith('-sighting')).map((type) => (
+                  {MarkerTypes.filter((type) => type.id.endsWith('-sighting')).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Scouting">
-                  {MarkerTypes.filter(type => ['track', 'blood-trail', 'bedding', 'buck-rub', 'buck-scrape', 'droppings', 'trail-crossing', 'food-source', 'glassing-point', 'buck-shed'].includes(type.id)).map((type) => (
+                  {MarkerTypes.filter((type) =>
+                    ['track', 'blood-trail', 'bedding', 'buck-rub', 'buck-scrape', 'droppings', 'trail-crossing', 'food-source', 'glassing-point', 'buck-shed'].includes(type.id)
+                  ).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Turkey">
-                  {MarkerTypes.filter(type => type.id.startsWith('turkey-')).map((type) => (
+                  {MarkerTypes.filter((type) => type.id.startsWith('turkey-')).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
                 <optgroup label="Other">
-                  {MarkerTypes.filter(type => ['camera', 'hazard', 'custom'].includes(type.id)).map((type) => (
+                  {MarkerTypes.filter((type) => ['camera', 'hazard', 'custom'].includes(type.id)).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
                 </optgroup>
@@ -590,7 +785,7 @@ const MapView: React.FC = () => {
               <button
                 type="submit"
                 className="px-3 py-1 bg-green-600 text-white rounded-md"
-                disabled={!newMarkerName} // Disable button if no name is provided
+                disabled={!newMarkerName}
               >
                 Add Marker
               </button>
@@ -599,7 +794,7 @@ const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* Marker Details Panel (for non-camera markers) */}
+      {/* Marker Details Panel */}
       {markerDetails && (
         <div className="absolute top-4 left-4 right-4 md:right-auto z-20 md:w-80">
           <MarkerDetailsPanel
@@ -615,49 +810,188 @@ const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* Hunt Area Popup */}
-      {showHuntAreaPopup && (
+      {/* Add Hunt Area/Club Modal */}
+      {showAddModal && (
         <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-md shadow-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">Add New Hunt Area</h2>
+            <h2 className="text-lg font-bold mb-4">Add {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}</h2>
+            {/* Tab Navigation */}
+            <div className="flex justify-between border-b border-gray-200 mb-4">
+              <div className="flex space-x-4">
+                <button
+                  className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-areas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  onClick={() => setActiveTab('hunt-areas')}
+                >
+                  Hunt Areas
+                </button>
+                <button
+                  className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-clubs' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+                  onClick={() => setActiveTab('hunt-clubs')}
+                >
+                  Hunt Clubs/Outfitters
+                </button>
+              </div>
+            </div>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                handleAddHuntArea();
+                activeTab === 'hunt-areas' ? handleAddHuntArea() : handleAddHuntClub();
               }}
             >
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                <input
-                  type="text"
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  value={newHuntAreaName}
-                  onChange={(e) => setNewHuntAreaName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
-                <textarea
-                  className="w-full p-2 border border-gray-300 rounded-md"
-                  value={newHuntAreaNotes}
-                  onChange={(e) => setNewHuntAreaNotes(e.target.value)}
-                  rows={3}
-                />
-              </div>
+              {activeTab === 'hunt-areas' ? (
+                <>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={newHuntAreaName}
+                      onChange={(e) => setNewHuntAreaName(e.target.value)}
+                      required
+                      placeholder="Enter hunt area name"
+                    />
+                  </div>
+                  <div className="mb-4 relative">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Search Location</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded-md pr-8"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search for a place (e.g., city, region)"
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={handleClearSearch}
+                          className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {isSearching && <div className="text-sm text-gray-500 mt-1">Searching...</div>}
+                    {searchError && <div className="text-sm text-red-500 mt-1">{searchError}</div>}
+                    {placeSuggestions.length > 0 && (
+                      <ul className="mt-2 border border-gray-300 rounded-md max-h-40 overflow-y-auto bg-white">
+                        {placeSuggestions.map((place) => (
+                          <li
+                            key={place.id}
+                            className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                            onClick={() => handlePlaceSelect(place)}
+                          >
+                            {place.place_name}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                    <textarea
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={newHuntAreaNotes}
+                      onChange={(e) => setNewHuntAreaNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Add any notes about the hunt area"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Search Club/Outfitter</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded-md pr-8"
+                        value={clubSearchQuery}
+                        onChange={(e) => setClubSearchQuery(e.target.value)}
+                        placeholder="Search for a club or outfitter"
+                      />
+                      {clubSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={handleClearClubSearch}
+                          className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {isClubSearching && <div className="text-sm text-gray-500 mt-1">Searching...</div>}
+                    {clubSearchError && <div className="text-sm text-red-500 mt-1">{clubSearchError}</div>}
+                    {clubSuggestions.length > 0 && (
+                      <ul className="mt-2 border border-gray-300 rounded-md max-h-40 overflow-y-auto bg-white">
+                        {clubSuggestions.map((club) => (
+                          <li
+                            key={club.id}
+                            className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                            onClick={() => handleClubSelect(club)}
+                          >
+                            {club.name} ({club.location})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={selectedClub?.name || ''}
+                      readOnly
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={selectedClub?.location || ''}
+                      readOnly
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                    <textarea
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={newHuntAreaNotes}
+                      onChange={(e) => setNewHuntAreaNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Add any notes about the club/outfitter"
+                    />
+                  </div>
+                </>
+              )}
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
-                  onClick={() => setShowHuntAreaPopup(false)}
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setSearchQuery('');
+                    setPlaceSuggestions([]);
+                    setSearchError(null);
+                    setNewHuntAreaName('');
+                    setNewHuntAreaBounds([0, 0, 0, 0]);
+                    setNewHuntAreaNotes('');
+                    setClubSearchQuery('');
+                    setClubSuggestions([]);
+                    setClubSearchError(null);
+                    setSelectedClub(null);
+                  }}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  disabled={activeTab === 'hunt-areas' ? (!newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)) : !selectedClub}
                 >
-                  Add Area
+                  Add {activeTab === 'hunt-areas' ? 'Area' : 'Club'}
                 </button>
               </div>
             </form>
@@ -670,14 +1004,14 @@ const MapView: React.FC = () => {
         <button
           className={`px-3 py-1 ${
             currentHuntArea
-              ? "bg-green-600 text-white"
-              : "bg-gray-400 text-gray-700 cursor-not-allowed"
+              ? 'bg-green-600 text-white'
+              : 'bg-gray-400 text-gray-700 cursor-not-allowed'
           } rounded-md`}
           onClick={() => {
             if (currentHuntArea) {
               setAddingMarker(true);
             } else {
-              alert("Please select a hunt area before adding a marker.");
+              alert('Please select a hunt area before adding a marker.');
             }
           }}
           disabled={!currentHuntArea}
@@ -686,11 +1020,9 @@ const MapView: React.FC = () => {
         </button>
         <button
           className="bg-blue-600 text-white py-2 px-4 rounded-md shadow-md hover:bg-blue-700"
-          onClick={() => {
-            setShowHuntAreaPopup(true);
-          }}
+          onClick={() => setShowAddModal(true)}
         >
-          + NEW HUNT AREA
+          + NEW HUNT AREA/CLUB
         </button>
       </div>
     </div>
