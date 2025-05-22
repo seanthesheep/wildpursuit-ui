@@ -21,6 +21,7 @@ export const useSpypointSync = () => {
     setSyncState(prev => ({ ...prev, isLoading: true, error: null }));
 
     try {
+      console.log(user.id,"id")
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/syncSpypointPhotos?userId=${user.id}`,
         {
@@ -30,7 +31,7 @@ export const useSpypointSync = () => {
           },
         }
       );
-
+console.log(response,"response")
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || 'Failed to sync photos');

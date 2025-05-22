@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MapPin, Crosshair, Wind, Compass, Maximize, Plus, Minus, Layers, Search, X, Cloud, Navigation, Truck, Home, Camera } from 'react-feather';
+import { MapPin, Crosshair, Wind, Compass, Maximize, Plus, Minus, Layers, Search, X } from 'react-feather';
 import { useMap } from '../../contexts/MapContext';
 import { useUser } from '../../contexts/UserContext';
 import MarkerIcon from './MarkerIcon';
@@ -10,7 +10,7 @@ import CameraMarkerPopup from './CameraMarkerPopup';
 import MarkerDetailsPanel from './MarkerDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
 import { HuntArea, Marker, MarkerType } from '../../types/types';
-import { addMarkerToFirestore, updateMarkerInFirestore, addHuntClubToFirestore } from '../../firebase';
+import { addMarkerToFirestore, updateMarkerInFirestore, addHuntClubToFirestore, getHuntClubsFromFirestore } from '../../firebase';
 import debounce from 'lodash/debounce';
 
 // Mapbox access token
@@ -18,9 +18,6 @@ mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
 // Mapbox Geocoding API endpoint
 const GEOCODING_API = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-
-// Mock API endpoint for hunt clubs/outfitters (replace with actual API)
-const CLUBS_API = 'https://api.example.com/clubs';
 
 interface ViewState {
   latitude: number;
@@ -33,67 +30,56 @@ interface ViewState {
 interface Club {
   id: string;
   name: string;
-  location?: string;
+  location: string;
+  coordinates?: [number, number]; // [longitude, latitude]
   notes?: string;
   createdBy: string;
   clubId: string;
+}
+
+interface MapViewProps {
+  activeTab: 'hunt-areas' | 'hunt-clubs';
 }
 
 const MarkerTypes = [
   { id: 'leaner-tripod', name: 'Leaner/Tripod', color: 'orange', icon: '/svgs/tree-stand.svg' },
   { id: 'hang-on', name: 'Hang On', color: 'orange', icon: '/svgs/tree-stand.svg' },
   { id: 'climber-stand', name: 'Climber Stand', color: 'orange', icon: '/svgs/tree-stand.svg' },
-  { id: 'ground-blind', name: 'Ground Blind', color: 'orange', icon: '/svgs/blind.svg' },
-  { id: 'custom-stand', name: 'Custom Stand', color: 'orange', icon: '/svgs/Custom.svg' },
+  { id: 'ground-blind', name: 'Ground Blind', color: 'green', icon: '/svgs/ground-blind.svg' },
+  { id: 'custom-stand', name: 'Custom Stand', color: 'white', icon: '/svgs/Custom.svg' },
   { id: 'food-plot', name: 'Food Plot', color: 'green', icon: '/svgs/food-plot.svg' },
-  { id: 'club-camp', name: 'Club/Camp', color: 'green', icon: '/svgs/Custom.svg' },
-  { id: 'gate', name: 'Gate', color: 'green', icon: '/svgs/Gate.svg' },
-  { id: 'parking', name: 'Parking', color: 'green', icon: '/svgs/Parking.svg' },
-  { id: 'ag-field', name: 'Ag Field', color: 'green', icon: '/svgs/food-plot.svg' },
-  { id: 'feeder', name: 'Feeder', color: 'green', icon: '/svgs/Freeder.svg' },
-  { id: 'bait-pile', name: 'Bait Pile', color: 'green', icon: '/svgs/other Food Source.svg' },
-  { id: 'custom-property', name: 'Custom Property', color: 'green', icon: '/svgs/Custom.svg' },
-  { id: 'buck-harvest', name: 'Buck', color: 'red', icon: '/svgs/Buck.svg' },
-  { id: 'doe-harvest', name: 'Doe', color: 'red', icon: '/svgs/Doe.svg' },
-  { id: 'turkey-harvest', name: 'Turkey', color: 'red', icon: '/svgs/Turkey.svg' },
-  { id: 'waterfowl-harvest', name: 'Waterfowl', color: 'red', icon: '/svgs/waterfowl.svg' },
-  { id: 'hog-harvest', name: 'Hog', color: 'red', icon: '/svgs/Hog.svg' },
-  { id: 'geese-harvest', name: 'Geese', color: 'red', icon: '/svgs/Geese.svg' },
-  { id: 'duck-harvest', name: 'Duck', color: 'red', icon: '/svgs/Duck.svg' },
-  { id: 'pronghorn-harvest', name: 'Pronghorn', color: 'red', icon: '/svgs/Pronghom.svg' },
-  { id: 'custom-harvest', name: 'Custom Harvest', color: 'red', icon: '/svgs/Custom.svg' },
-  { id: 'buck-sighting', name: 'Buck', color: 'blue', icon: '/svgs/Buck.svg' },
-  { id: 'doe-sighting', name: 'Doe', color: 'blue', icon: '/svgs/Doe.svg' },
-  { id: 'turkey-sighting', name: 'Turkey', color: 'blue', icon: '/svgs/Turkey.svg' },
-  { id: 'waterfowl-sighting', name: 'Waterfowl', color: 'blue', icon: '/svgs/waterfowl.svg' },
-  { id: 'hog-sighting', name: 'Hog', color: 'blue', icon: '/svgs/Hog.svg' },
-  { id: 'geese-sighting', name: 'Geese', color: 'blue', icon: '/svgs/Geese.svg' },
-  { id: 'duck-sighting', name: 'Duck', color: 'blue', icon: '/svgs/Duck.svg' },
-  { id: 'pronghorn-sighting', name: 'Pronghorn', color: 'blue', icon: '/svgs/Pronghom.svg' },
-  { id: 'custom-sighting', name: 'Custom Sighting', color: 'blue', icon: '/svgs/Custom.svg' },
-  { id: 'track', name: 'Track', color: 'yellow', icon: '/svgs/Tracks.svg' },
-  { id: 'blood-trail', name: 'Blood Trail', color: 'red', icon: '/svgs/Blood Trial.svg' },
-  { id: 'bedding', name: 'Bedding', color: 'yellow', icon: '/svgs/Bedding.svg' },
-  { id: 'buck-rub', name: 'Buck Rub', color: 'yellow', icon: '/svgs/Buck rub.svg' },
-  { id: 'buck-scrape', name: 'Buck Scrape', color: 'yellow', icon: '/svgs/BuckScrap.svg' },
-  { id: 'droppings', name: 'Droppings', color: 'yellow', icon: '/svgs/Scat.svg' },
-  { id: 'trail-crossing', name: 'Trail Crossing', color: 'yellow', icon: '/svgs/Tracks.svg' },
-  { id: 'food-source', name: 'Food Source', color: 'yellow', icon: '/svgs/other Food Source.svg' },
-  { id: 'glassing-point', name: 'Glassing Point', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'buck-shed', name: 'Buck Shed', color: 'white', icon: '/svgs/Buck Shed.svg' },
-  { id: 'turkey-tracks', name: 'Turkey Tracks', color: 'yellow', icon: '/svgs/Tracks.svg' },
-  { id: 'turkey-scratching', name: 'Turkey Scratching', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'turkey-scat', name: 'Turkey Scat', color: 'yellow', icon: '/svgs/Scat.svg' },
-  { id: 'turkey-roost', name: 'Roost Area', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'turkey-gobble', name: 'Gobble Heard', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'turkey-setup', name: 'Set Up Location', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'turkey-custom', name: 'Custom Turkey', color: 'yellow', icon: '/svgs/Custom.svg' },
-  { id: 'camera', name: 'Trail Camera', color: 'yellow', icon: '/svgs/trail camera.svg' },
-  { id: 'hazard', name: 'Hazard', color: 'red', icon: '/svgs/Hazard.svg' },
+  { id: 'club-camp', name: 'Club/Camp', color: 'blue', icon: '/svgs/club-camp.svg' },
+  { id: 'gate', name: 'Gate', color: 'gray', icon: '/svgs/gate.svg' },
+  { id: 'parking', name: 'Parking', color: 'gray', icon: '/svgs/parking.svg' },
+  { id: 'ag-field', name: 'Ag Field', color: 'green', icon: '/svgs/ag-field.svg' },
+  { id: 'feeder', name: 'Feeder', color: 'brown', icon: '/svgs/feeder.svg' },
+  { id: 'bait-pile', name: 'Bait Pile', color: 'brown', icon: '/svgs/bait-pile.svg' },
+  { id: 'custom-property', name: 'Custom Property', color: 'white', icon: '/svgs/Custom.svg' },
+  { id: 'deer-harvest', name: 'Deer Harvest', color: 'red', icon: '/svgs/deer-harvest.svg' },
+  { id: 'bear-harvest', name: 'Bear Harvest', color: 'red', icon: '/svgs/bear-harvest.svg' },
+  { id: 'turkey-harvest', name: 'Turkey Harvest', color: 'red', icon: '/svgs/turkey-harvest.svg' },
+  { id: 'deer-sighting', name: 'Deer Sighting', color: 'yellow', icon: '/svgs/deer-sighting.svg' },
+  { id: 'bear-sighting', name: 'Bear Sighting', color: 'yellow', icon: '/svgs/bear-sighting.svg' },
+  { id: 'turkey-sighting', name: 'Turkey Sighting', color: 'yellow', icon: '/svgs/turkey-sighting.svg' },
+  { id: 'track', name: 'Track', color: 'purple', icon: '/svgs/track.svg' },
+  { id: 'blood-trail', name: 'Blood Trail', color: 'red', icon: '/svgs/blood-trail.svg' },
+  { id: 'bedding', name: 'Bedding', color: 'green', icon: '/svgs/bedding.svg' },
+  { id: 'buck-rub', name: 'Buck Rub', color: 'brown', icon: '/svgs/buck-rub.svg' },
+  { id: 'buck-scrape', name: 'Buck Scrape', color: 'brown', icon: '/svgs/buck-scrape.svg' },
+  { id: 'droppings', name: 'Droppings', color: 'brown', icon: '/svgs/droppings.svg' },
+  { id: 'trail-crossing', name: 'Trail Crossing', color: 'purple', icon: '/svgs/trail-crossing.svg' },
+  { id: 'food-source', name: 'Food Source', color: 'green', icon: '/svgs/food-source.svg' },
+  { id: 'glassing-point', name: 'Glassing Point', color: 'blue', icon: '/svgs/glassing-point.svg' },
+  { id: 'buck-shed', name: 'Buck Shed', color: 'brown', icon: '/svgs/buck-shed.svg' },
+  { id: 'turkey-strut', name: 'Turkey Strut', color: 'purple', icon: '/svgs/turkey-strut.svg' },
+  { id: 'turkey-dust', name: 'Turkey Dust', color: 'brown', icon: '/svgs/turkey-dust.svg' },
+  { id: 'turkey-roost', name: 'Turkey Roost', color: 'green', icon: '/svgs/turkey-roost.svg' },
+  { id: 'camera', name: 'Camera', color: 'gray', icon: '/svgs/camera.svg' },
+  { id: 'hazard', name: 'Hazard', color: 'red', icon: '/svgs/hazard.svg' },
   { id: 'custom', name: 'Custom', color: 'white', icon: '/svgs/Custom.svg' },
 ];
 
-const MapView: React.FC = () => {
+const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
   const {
     getMarkersForHuntArea,
     markers,
@@ -113,8 +99,13 @@ const MapView: React.FC = () => {
     setHuntClubs,
   } = useMap();
 
-  const { user } = useUser();
-  const isAdmin = user?.role === 'admin';
+  const { user, isAdmin } = useUser();
+
+  // Debug user and isAdmin
+  useEffect(() => {
+    console.log('User:', user);
+    console.log('isAdmin:', isAdmin);
+  }, [user, isAdmin]);
 
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -130,7 +121,6 @@ const MapView: React.FC = () => {
   });
   const [huntAreas, setHuntAreas] = useState<HuntArea[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'hunt-areas' | 'hunt-clubs'>('hunt-areas');
   const [clickedPoint, setClickedPoint] = useState<{ longitude: number; latitude: number } | null>(null);
   const [addingMarker, setAddingMarker] = useState(false);
   const [selectedMarkerType, setSelectedMarkerType] = useState<MarkerType>('tree-stand');
@@ -149,11 +139,7 @@ const MapView: React.FC = () => {
   const [clubSearchError, setClubSearchError] = useState<string | null>(null);
   const [isClubSearching, setIsClubSearching] = useState(false);
   const [selectedClub, setSelectedClub] = useState<any>(null);
-
-  // Debug state updates
-  useEffect(() => {
-    console.log('Search state:', { searchQuery, placeSuggestions, newHuntAreaBounds, searchError, isSearching });
-  }, [searchQuery, placeSuggestions, newHuntAreaBounds, searchError, isSearching]);
+  const [newClubCoordinates, setNewClubCoordinates] = useState<[number, number] | null>(null);
 
   // Utility function to detect mobile devices
   const isMobileDevice = () => {
@@ -168,7 +154,6 @@ const MapView: React.FC = () => {
         setSearchError(null);
         return;
       }
-
       setIsSearching(true);
       setSearchError(null);
       try {
@@ -181,7 +166,6 @@ const MapView: React.FC = () => {
           throw new Error('Failed to fetch place suggestions');
         }
         const data = await response.json();
-        console.log('Fetched place suggestions:', data.features);
         setPlaceSuggestions(data.features || []);
         if (!data.features.length) {
           setSearchError('No places found for your query.');
@@ -197,7 +181,7 @@ const MapView: React.FC = () => {
     []
   );
 
-  // Debounced search function for club/outfitter suggestions
+  // Debounced search function for club/outfitter suggestions (from the first code)
   const fetchClubSuggestions = useCallback(
     debounce(async (query: string) => {
       if (!query) {
@@ -208,11 +192,25 @@ const MapView: React.FC = () => {
       setIsClubSearching(true);
       setClubSearchError(null);
       try {
-        const response = await fetch(`${CLUBS_API}?query=${encodeURIComponent(query)}&limit=5`);
-        if (!response.ok) throw new Error('Failed to fetch club suggestions');
+        const response = await fetch(
+          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${
+            import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+          }&types=poi,place&limit=5`
+        );
+        if (!response.ok) {
+          throw new Error('Failed to fetch club suggestions');
+        }
         const data = await response.json();
-        setClubSuggestions(data.results || []);
-        if (!data.results.length) setClubSearchError('No clubs/outfitters found for your query.');
+        const suggestions = data.features.map((feature: any) => ({
+          id: feature.id,
+          name: feature.place_name,
+          location: feature.place_name.split(', ').slice(1).join(', '),
+          coordinates: feature.center,
+        }));
+        setClubSuggestions(suggestions);
+        if (!suggestions.length) {
+          setClubSearchError('No clubs or outfitters found for your query.');
+        }
       } catch (error) {
         console.error('Error fetching club suggestions:', error);
         setClubSearchError('Error fetching clubs. Please try again.');
@@ -223,6 +221,19 @@ const MapView: React.FC = () => {
     }, 300),
     []
   );
+
+  // Fetch hunt clubs from Firestore on mount
+  useEffect(() => {
+    const fetchHuntClubs = async () => {
+      try {
+        const clubs = await getHuntClubsFromFirestore();
+        setHuntClubs(clubs);
+      } catch (error) {
+        console.error('Error fetching hunt clubs:', error);
+      }
+    };
+    fetchHuntClubs();
+  }, [setHuntClubs]);
 
   // Handle search input change for Hunt Areas
   useEffect(() => {
@@ -248,7 +259,6 @@ const MapView: React.FC = () => {
     setSearchQuery(place.place_name);
     setPlaceSuggestions([]);
     setSearchError(null);
-    console.log('Place selected:', { place: place.place_name, bounds, center: { lng, lat } });
   };
 
   // Clear search input for Hunt Areas
@@ -257,15 +267,26 @@ const MapView: React.FC = () => {
     setPlaceSuggestions([]);
     setSearchError(null);
     setNewHuntAreaBounds([0, 0, 0, 0]);
-    console.log('Search cleared');
   };
 
-  // Handle club selection for adding a new club
+  // Handle club selection (from the first code)
   const handleClubSelect = (club: any) => {
     setSelectedClub(club);
     setClubSearchQuery(club.name);
     setClubSuggestions([]);
     setClubSearchError(null);
+    setNewClubCoordinates(club.coordinates);
+    if (map.current) {
+      map.current.flyTo({
+        center: club.coordinates,
+        zoom: 12,
+      });
+      setMapLocation({
+        latitude: club.coordinates[1],
+        longitude: club.coordinates[0],
+        zoom: 12,
+      });
+    }
   };
 
   // Clear club search input
@@ -274,9 +295,10 @@ const MapView: React.FC = () => {
     setClubSuggestions([]);
     setClubSearchError(null);
     setSelectedClub(null);
+    setNewClubCoordinates(null);
   };
 
-  // Initialize map without geocoder
+  // Initialize map
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
@@ -368,7 +390,6 @@ const MapView: React.FC = () => {
     const fetchHuntAreas = async () => {
       try {
         const areas = await getHuntAreasFromFirestore();
-        console.log('Fetched hunt areas:', areas);
         setHuntAreas(areas);
       } catch (error) {
         console.error('Error fetching hunt areas:', error);
@@ -487,7 +508,6 @@ const MapView: React.FC = () => {
       setClickedPoint(null);
       setNewMarkerName('');
       setNewMarkerNotes('');
-      console.log('Marker added with ID:', id);
     } catch (error) {
       console.error('Error adding marker:', error);
     }
@@ -583,16 +603,12 @@ const MapView: React.FC = () => {
       const id = await addHuntAreaToFirestore(newHuntArea);
       const createdHuntArea = { ...newHuntArea, id };
       setHuntAreas((prev) => [...prev, createdHuntArea]);
-
-      // Set the new hunt area as the current hunt area
       setCurrentHuntArea(createdHuntArea);
 
-      // Calculate the center of the bounds
       const [minLng, minLat, maxLng, maxLat] = newHuntAreaBounds;
       const centerLng = (minLng + maxLng) / 2;
       const centerLat = (minLat + maxLat) / 2;
 
-      // Add a marker at the center of the new hunt area
       const newMarker: Marker = {
         id: uuidv4(),
         latitude: centerLat,
@@ -611,9 +627,6 @@ const MapView: React.FC = () => {
       addMarker(newMarker);
       setMarkers((prev: any) => [...prev, { ...newMarker, id: markerId }] as Marker[]);
 
-      console.log('Hunt area added with ID:', id);
-      console.log('Marker added at center:', { markerId, centerLng, centerLat });
-
       setShowAddModal(false);
       setNewHuntAreaName('');
       setNewHuntAreaNotes('');
@@ -627,9 +640,9 @@ const MapView: React.FC = () => {
     }
   };
 
-  // Handle adding a new hunt club
+  // Handle adding a new hunt club (from the first code)
   const handleAddHuntClub = async () => {
-    if (!selectedClub) {
+    if (!selectedClub || !newClubCoordinates) {
       alert('Please select a club or outfitter.');
       return;
     }
@@ -638,6 +651,7 @@ const MapView: React.FC = () => {
       id: uuidv4(),
       name: selectedClub.name,
       location: selectedClub.location || '',
+      coordinates: newClubCoordinates,
       notes: newHuntAreaNotes,
       createdBy: user?.id || '',
       clubId: 'default-club',
@@ -645,13 +659,34 @@ const MapView: React.FC = () => {
 
     try {
       const id = await addHuntClubToFirestore(newClub);
-      setHuntClubs([...huntClubs, { ...newClub, id }]);
+      const updatedClubs = [...huntClubs, { ...newClub, id }];
+      setHuntClubs(updatedClubs);
+
+      const newMarker: Marker = {
+        id: uuidv4(),
+        latitude: newClubCoordinates[1],
+        longitude: newClubCoordinates[0],
+        type: 'club-camp' as MarkerType,
+        name: `${selectedClub.name} Location`,
+        notes: `Marker for ${selectedClub.name}`,
+        createdBy: user?.id || '',
+        inUse: false,
+        assignedTo: null,
+        dateCreated: new Date().toISOString(),
+        huntAreaId: currentHuntArea?.id || 'default-hunt-area',
+      };
+
+      const markerId = await addMarkerToFirestore(newMarker);
+      addMarker(newMarker);
+      setMarkers((prev: any) => [...prev, { ...newMarker, id: markerId }] as Marker[]);
+
       alert('Club/outfitter added successfully!');
       setShowAddModal(false);
       setClubSearchQuery('');
       setClubSuggestions([]);
       setClubSearchError(null);
       setSelectedClub(null);
+      setNewClubCoordinates(null);
       setNewHuntAreaNotes('');
     } catch (error) {
       console.error('Error adding hunt club:', error);
@@ -663,7 +698,7 @@ const MapView: React.FC = () => {
     <div className="relative h-[500px] w-full">
       <div ref={mapContainer} className="absolute top-0 bottom-0 left-0 right-0 rounded-md" />
 
-      {/* Map Tools */}
+      {/* Map Tools (without Add Button) */}
       <div className="absolute top-4 right-4 bg-white rounded-md shadow-md p-2 flex flex-col space-y-2 z-10">
         <button className="p-2 hover:bg-gray-100 rounded-md">
           <Layers size={20} />
@@ -814,24 +849,9 @@ const MapView: React.FC = () => {
       {showAddModal && (
         <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-md shadow-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">Add {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}</h2>
-            {/* Tab Navigation */}
-            <div className="flex justify-between border-b border-gray-200 mb-4">
-              <div className="flex space-x-4">
-                <button
-                  className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-areas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-                  onClick={() => setActiveTab('hunt-areas')}
-                >
-                  Hunt Areas
-                </button>
-                <button
-                  className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-clubs' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-                  onClick={() => setActiveTab('hunt-clubs')}
-                >
-                  Hunt Clubs/Outfitters
-                </button>
-              </div>
-            </div>
+            <h2 className="text-lg font-bold mb-4">
+              {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}
+            </h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -908,7 +928,7 @@ const MapView: React.FC = () => {
                         className="w-full p-2 border border-gray-300 rounded-md pr-8"
                         value={clubSearchQuery}
                         onChange={(e) => setClubSearchQuery(e.target.value)}
-                        placeholder="Search for a club or outfitter"
+                        placeholder="Search for a club or outfitter (e.g., name or location)"
                       />
                       {clubSearchQuery && (
                         <button
@@ -981,15 +1001,20 @@ const MapView: React.FC = () => {
                     setClubSuggestions([]);
                     setClubSearchError(null);
                     setSelectedClub(null);
+                    setNewClubCoordinates(null);
                   }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md"
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  disabled={activeTab === 'hunt-areas' ? (!newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)) : !selectedClub}
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  disabled={
+                    activeTab === 'hunt-areas'
+                      ? !newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)
+                      : !selectedClub || !newClubCoordinates
+                  }
                 >
                   Add {activeTab === 'hunt-areas' ? 'Area' : 'Club'}
                 </button>
@@ -999,13 +1024,11 @@ const MapView: React.FC = () => {
         </div>
       )}
 
-      {/* Bottom Controls */}
+      {/* Bottom Buttons (Add Marker and Add Hunt Area/Club) */}
       <div className="absolute bottom-4 right-4 left-4 flex justify-between z-10">
         <button
           className={`px-3 py-1 ${
-            currentHuntArea
-              ? 'bg-green-600 text-white'
-              : 'bg-gray-400 text-gray-700 cursor-not-allowed'
+            currentHuntArea ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-400 text-gray-700 cursor-not-allowed'
           } rounded-md`}
           onClick={() => {
             if (currentHuntArea) {
@@ -1020,7 +1043,10 @@ const MapView: React.FC = () => {
         </button>
         <button
           className="bg-blue-600 text-white py-2 px-4 rounded-md shadow-md hover:bg-blue-700"
-          onClick={() => setShowAddModal(true)}
+          onClick={() => {
+            console.log('Add button clicked');
+            setShowAddModal(true);
+          }}
         >
           + NEW HUNT AREA/CLUB
         </button>

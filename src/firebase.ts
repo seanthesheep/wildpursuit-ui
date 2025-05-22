@@ -1,5 +1,3 @@
-
-// Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -26,11 +24,12 @@ import {
 import { HuntArea, Marker } from './types/types';
 import { hashCredentials } from './utils/encryption';
 
-// Types
+// Club interface for type safety
 interface Club {
   id: string;
   name: string;
   location?: string;
+  coordinates?: [number, number]; // [longitude, latitude]
   notes?: string;
   createdBy: string;
   clubId: string;
@@ -49,15 +48,14 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const db = getFirestore(app); // Initialize Firestore
+const db = getFirestore(app);
 const provider = new GoogleAuthProvider();
 
 // Google Sign-In
 export const signInWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    return user;
+    return result.user;
   } catch (error) {
     console.error("Google Sign-In Error:", error);
     return null;
@@ -97,14 +95,14 @@ export const signOutUser = async () => {
 
 // Auth State Listener
 export const onAuthStateChangedListener = (callback: (user: any) => void) => {
-  return onAuthStateChanged(auth, callback); // Return the unsubscribe function
+  return onAuthStateChanged(auth, callback);
 };
 
 // Add a new hunt area
-export const addHuntAreaToFirestore = async (huntArea: any) => {
+export const addHuntAreaToFirestore = async (huntArea: HuntArea): Promise<string> => {
   try {
     const docRef = await addDoc(collection(db, "huntAreas"), huntArea);
-    return docRef.id; // Return the ID of the new hunt area
+    return docRef.id;
   } catch (error) {
     console.error("Error adding hunt area:", error);
     throw error;
@@ -112,9 +110,8 @@ export const addHuntAreaToFirestore = async (huntArea: any) => {
 };
 
 // Add a new marker to Firestore
-export const addMarkerToFirestore = async (marker: any) => {
+export const addMarkerToFirestore = async (marker: Marker): Promise<string> => {
   try {
-    // Use the marker's ID as the document ID
     const markerRef = doc(db, 'markers', marker.id);
     await setDoc(markerRef, marker);
     return marker.id;
@@ -177,7 +174,7 @@ export const getMarkersForHuntArea = async (huntAreaId: string): Promise<Marker[
 };
 
 // Update a hunt area
-export const updateHuntAreaInFirestore = async (id: string, updatedFields: any) => {
+export const updateHuntAreaInFirestore = async (id: string, updatedFields: Partial<HuntArea>) => {
   try {
     const docRef = doc(db, "huntAreas", id);
     await updateDoc(docRef, updatedFields);
@@ -188,7 +185,7 @@ export const updateHuntAreaInFirestore = async (id: string, updatedFields: any) 
 };
 
 // Update a marker
-export const updateMarkerInFirestore = async (id: string, updatedFields: any) => {
+export const updateMarkerInFirestore = async (id: string, updatedFields: Partial<Marker>) => {
   try {
     const docRef = doc(db, "markers", id);
     await updateDoc(docRef, updatedFields);
@@ -220,43 +217,10 @@ export const deleteMarkerFromFirestore = async (id: string) => {
   }
 };
 
-interface SpypointCredentials {
-  username: string;
-  passwordHash: string;
-  lastSync?: string;
-}
-
-export const saveSpypointCredentials = async (
-  userId: string, 
-  credentials: { username: string; password: string }
-): Promise<void> => {
-  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
-  
-  const hashedCredentials: SpypointCredentials = {
-    username: credentials.username,
-    passwordHash: await hashCredentials(credentials.password),
-    lastSync: new Date().toISOString()
-  };
-
-  await setDoc(docRef, hashedCredentials);
-};
-
-export const getSpypointCredentials = async (
-  userId: string
-): Promise<SpypointCredentials | null> => {
-  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
-  const docSnap = await getDoc(docRef);
-  
-  if (!docSnap.exists()) {
-    return null;
-  }
-  
-  return docSnap.data() as SpypointCredentials;
-};
-
 // Add a new hunt club to Firestore
 export const addHuntClubToFirestore = async (club: Club): Promise<string> => {
   try {
+    console.log(club, "club")
     const docRef = await addDoc(collection(db, 'huntClubs'), club);
     return docRef.id;
   } catch (error) {
@@ -275,6 +239,7 @@ export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
         id: doc.id,
         name: data.name || "Unnamed Club",
         location: data.location || "",
+        coordinates: data.coordinates || undefined,
         notes: data.notes || "",
         createdBy: data.createdBy || "",
         clubId: data.clubId || "",
@@ -284,6 +249,34 @@ export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
     console.error("Error fetching hunt clubs:", error);
     throw error;
   }
+};
+
+interface SpypointCredentials {
+  username: string;
+  passwordHash: string;
+  lastSync?: string;
+}
+
+export const saveSpypointCredentials = async (
+  userId: string,
+  credentials: { username: string; password: string }
+): Promise<void> => {
+  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+  const hashedCredentials: SpypointCredentials = {
+    username: credentials.username,
+    passwordHash: await hashCredentials(credentials.password),
+    lastSync: new Date().toISOString(),
+  };
+  await setDoc(docRef, hashedCredentials);
+};
+
+export const getSpypointCredentials = async (userId: string): Promise<SpypointCredentials | null> => {
+  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+  const docSnap = await getDoc(docRef);
+  if (!docSnap.exists()) {
+    return null;
+  }
+  return docSnap.data() as SpypointCredentials;
 };
 
 export { auth, db, provider };

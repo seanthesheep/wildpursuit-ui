@@ -4,26 +4,36 @@ import { useUser } from '../contexts/UserContext';
 import { Plus, ChevronRight, Menu, X } from 'react-feather';
 import debounce from 'lodash/debounce';
 import MapView from '../components/map/MapView';
+import { addHuntClubToFirestore, getHuntClubsFromFirestore } from '../firebase';
 
 // Mapbox Geocoding API endpoint
 const GEOCODING_API = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
-// Mock API endpoint for hunt clubs/outfitters (replace with actual API)
-const CLUBS_API = 'https://api.example.com/clubs';
 
 interface Club {
   id: string;
   name: string;
   location?: string;
+  coordinates?: [number, number]; // [longitude, latitude]
   notes?: string;
   createdBy: string;
   clubId: string;
 }
 
-const MapSidebar: React.FC = () => {
-  const { currentHuntArea, huntAreas, huntClubs, setCurrentHuntArea, setHuntClubs, addHuntArea, setMapLocation, addHuntClubToFirestore } = useMap();
+const Map: React.FC = () => {
   const { user, isAdmin } = useUser();
-
-  const [showAddHuntAreaModal, setShowAddHuntAreaModal] = useState(false);
+  const {
+    currentHuntArea,
+    huntAreas,
+    huntClubs,
+    setCurrentHuntArea,
+    setHuntClubs,
+    addHuntArea,
+    setMapLocation,
+    addMarker,
+  } = useMap();
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [activeTab, setActiveTab] = useState<'hunt-areas' | 'hunt-clubs'>('hunt-areas');
+  const [showAddModal, setShowAddModal] = useState(false);
   const [newHuntAreaName, setNewHuntAreaName] = useState('');
   const [newHuntAreaBounds, setNewHuntAreaBounds] = useState<[number, number, number, number]>([0, 0, 0, 0]);
   const [newHuntAreaNotes, setNewHuntAreaNotes] = useState('');
@@ -31,12 +41,12 @@ const MapSidebar: React.FC = () => {
   const [placeSuggestions, setPlaceSuggestions] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'hunt-areas' | 'hunt-clubs'>('hunt-areas');
   const [clubSearchQuery, setClubSearchQuery] = useState('');
   const [clubSuggestions, setClubSuggestions] = useState<any[]>([]);
   const [clubSearchError, setClubSearchError] = useState<string | null>(null);
   const [isClubSearching, setIsClubSearching] = useState(false);
   const [selectedClub, setSelectedClub] = useState<any>(null);
+  const [newClubCoordinates, setNewClubCoordinates] = useState<[number, number] | null>(null);
 
   // Debounced search function for place suggestions (Hunt Areas)
   const fetchPlaceSuggestions = useCallback(
@@ -80,11 +90,21 @@ const MapSidebar: React.FC = () => {
       setIsClubSearching(true);
       setClubSearchError(null);
       try {
-        const response = await fetch(`${CLUBS_API}?query=${encodeURIComponent(query)}&limit=5`);
+        const response = await fetch(
+          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${
+            import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
+          }&types=poi,place&limit=5`
+        );
         if (!response.ok) throw new Error('Failed to fetch club suggestions');
         const data = await response.json();
-        setClubSuggestions(data.results || []);
-        if (!data.results.length) setClubSearchError('No clubs/outfitters found for your query.');
+        const suggestions = data.features.map((feature: any) => ({
+          id: feature.id,
+          name: feature.place_name,
+          location: feature.place_name.split(', ').slice(1).join(', '),
+          coordinates: feature.center,
+        }));
+        setClubSuggestions(suggestions);
+        if (!suggestions.length) setClubSearchError('No clubs or outfitters found for your query.');
       } catch (error) {
         console.error('Error fetching club suggestions:', error);
         setClubSearchError('Error fetching clubs. Please try again.');
@@ -95,6 +115,19 @@ const MapSidebar: React.FC = () => {
     }, 300),
     []
   );
+
+  // Fetch hunt clubs from Firestore on mount
+  useEffect(() => {
+    const fetchHuntClubs = async () => {
+      try {
+        const clubs = await getHuntClubsFromFirestore();
+        setHuntClubs(clubs);
+      } catch (error) {
+        console.error('Error fetching hunt clubs:', error);
+      }
+    };
+    fetchHuntClubs();
+  }, [setHuntClubs]);
 
   // Handle search input change for Hunt Areas
   useEffect(() => {
@@ -122,6 +155,7 @@ const MapSidebar: React.FC = () => {
     setSearchQuery('');
     setPlaceSuggestions([]);
     setSearchError(null);
+    setNewHuntAreaBounds([0, 0, 0, 0]);
   };
 
   // Handle club selection for adding a new club
@@ -130,11 +164,23 @@ const MapSidebar: React.FC = () => {
     setClubSearchQuery(club.name);
     setClubSuggestions([]);
     setClubSearchError(null);
+    setNewClubCoordinates(club.coordinates);
+    setMapLocation({
+      latitude: club.coordinates[1],
+      longitude: club.coordinates[0],
+      zoom: 12,
+    });
   };
 
-  // Handle club click from the list
+  // Handle club click from the sidebar list
   const handleClubClick = async (club: Club) => {
-    if (club.location) {
+    if (club.coordinates) {
+      setMapLocation({
+        latitude: club.coordinates[1],
+        longitude: club.coordinates[0],
+        zoom: 12,
+      });
+    } else if (club.location) {
       try {
         const response = await fetch(
           `${GEOCODING_API}/${encodeURIComponent(club.location)}.json?access_token=${
@@ -161,8 +207,19 @@ const MapSidebar: React.FC = () => {
     setClubSuggestions([]);
     setClubSearchError(null);
     setSelectedClub(null);
+    setNewClubCoordinates(null);
   };
 
+  // Implementation of uuidv4
+  function uuidv4(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  // Handle adding a new hunt area
   const handleAddHuntArea = async () => {
     if (!newHuntAreaName) {
       alert('Please enter a hunt area name.');
@@ -173,45 +230,44 @@ const MapSidebar: React.FC = () => {
       return;
     }
 
-    const newHuntArea = {
-      id: uuidv4(),
-      name: newHuntAreaName,
-      notes: newHuntAreaNotes,
-      markers: [],
-      bounds: newHuntAreaBounds,
-      lastUpdated: new Date().toISOString(),
-      shared: false,
-      sharedWith: [],
-      createdBy: user?.id || '',
-      clubId: 'default-club',
+      const newHuntArea = {
+        id: uuidv4(),
+        name: newHuntAreaName,
+        notes: newHuntAreaNotes,
+        markers: [],
+        bounds: newHuntAreaBounds,
+        lastUpdated: new Date().toISOString(),
+        shared: false,
+        sharedWith: [],
+        createdBy: user?.id || '',
+        clubId: 'default-club',
+      };
+      try {
+        await addHuntArea(newHuntArea);
+        setShowAddModal(false);
+        setNewHuntAreaName('');
+        setNewHuntAreaBounds([0, 0, 0, 0]);
+        setNewHuntAreaNotes('');
+        setSearchQuery('');
+        setPlaceSuggestions([]);
+        setSearchError(null);
+      } catch (error) {
+        console.error('Error adding hunt area:', error);
+        alert('Failed to add hunt area. Please try again.');
+      }
     };
-
-    try {
-      await addHuntArea(newHuntArea);
-      alert('Hunt area added successfully!');
-      setShowAddHuntAreaModal(false);
-      setNewHuntAreaName('');
-      setNewHuntAreaBounds([0, 0, 0, 0]);
-      setNewHuntAreaNotes('');
-      setSearchQuery('');
-      setPlaceSuggestions([]);
-      setSearchError(null);
-    } catch (error) {
-      console.error('Error adding hunt area:', error);
-      alert('Failed to add hunt area. Please try again.');
-    }
-  };
-
-  const handleAddHuntClub = async () => {
-    if (!selectedClub) {
-      alert('Please select a club or outfitter.');
-      return;
-    }
+  
+    const handleAddHuntClub = async () => {
+      if (!selectedClub || !newClubCoordinates) {
+        alert('Please select a club or outfitter.');
+        return;
+      }
 
     const newClub: Club = {
       id: uuidv4(),
       name: selectedClub.name,
       location: selectedClub.location || '',
+      coordinates: newClubCoordinates,
       notes: newHuntAreaNotes,
       createdBy: user?.id || '',
       clubId: 'default-club',
@@ -221,11 +277,12 @@ const MapSidebar: React.FC = () => {
       const id = await addHuntClubToFirestore(newClub);
       setHuntClubs([...huntClubs, { ...newClub, id }]);
       alert('Club/outfitter added successfully!');
-      setShowAddHuntAreaModal(false);
+      setShowAddModal(false);
       setClubSearchQuery('');
       setClubSuggestions([]);
       setClubSearchError(null);
       setSelectedClub(null);
+      setNewClubCoordinates(null);
       setNewHuntAreaNotes('');
     } catch (error) {
       console.error('Error adding hunt club:', error);
@@ -233,119 +290,266 @@ const MapSidebar: React.FC = () => {
     }
   };
 
-  // Implementation of uuidv4
-  function uuidv4(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
-
   return (
-    <div className="w-64 md:w-80 h-full bg-white border-r border-gray-200 overflow-y-auto">
-      <div className="p-3 md:p-4 border-b border-gray-200">
-        <h1 className="text-lg font-bold text-gray-800 uppercase">HUNT AREAS</h1>
+    <div className="flex h-full flex-col md:flex-row">
+      {/* Mobile menu button */}
+      <div className="md:hidden bg-white p-2 border-b border-gray-200 flex justify-between items-center z-10">
+        <h1 className="font-semibold">Wildpursuit Map</h1>
+        <button
+          onClick={() => setShowSidebar(!showSidebar)}
+          className="p-2 rounded-md bg-gray-100"
+        >
+          <Menu size={20} />
+        </button>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="p-2 flex justify-between border-b border-gray-200">
-        <div className="flex space-x-4">
+      {/* Sidebar for mobile */}
+      <div
+        className={`md:hidden fixed inset-0 bg-gray-800 bg-opacity-75 z-40 transition-opacity duration-300 ${
+          showSidebar ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      >
+        <div
+          className={`absolute top-0 left-0 h-full bg-white transform transition-transform duration-300 ease-in-out overflow-auto ${
+            showSidebar ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="p-4 border-b border-gray-200 flex justify-between items-center">
+            <h2 className="font-semibold">Map Options</h2>
+            <button onClick={() => setShowSidebar(false)} className="text-gray-500">
+              <X size={16} />
+            </button>
+          </div>
+          {/* Sidebar content */}
+          <div className="w-64 h-full bg-white border-r border-gray-200 overflow-y-auto">
+            <div className="p-3 border-b border-gray-200">
+              <h1 className="text-lg font-bold text-gray-800 uppercase">HUNT AREAS</h1>
+            </div>
+
+            {/* Tab Navigation */}
+            <div className="p-2 flex justify-between border-b border-gray-200">
+              <div className="flex space-x-4">
+                <button
+                  className={`px-3 py-1 rounded-md text-sm ${
+                    activeTab === 'hunt-areas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                  }`}
+                  onClick={() => setActiveTab('hunt-areas')}
+                >
+                  Hunt Areas
+                </button>
+                <button
+                  className={`px-3 py-1 rounded-md text-sm ${
+                    activeTab === 'hunt-clubs' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+                  }`}
+                  onClick={() => setActiveTab('hunt-clubs')}
+                >
+                  Hunt Clubs/Outfitters
+                </button>
+              </div>
+              {isAdmin && (
+                <button
+                  className="bg-green-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
+                  onClick={() => setShowAddModal(true)}
+                >
+                  <Plus size={16} className="mr-1" /> {activeTab === 'hunt-areas' ? 'NEW AREA' : 'NEW CLUB'}
+                </button>
+              )}
+            </div>
+
+            {/* Tab Content */}
+            <div className="p-3">
+              {activeTab === 'hunt-areas' && (
+                <>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">
+                    {isAdmin ? 'ALL AREAS' : 'YOUR AREAS'}
+                  </h2>
+                  {huntAreas.length === 0 ? (
+                    <div className="text-center p-4 text-gray-500">
+                      No hunt areas available. {isAdmin && 'Click the NEW AREA button to add one.'}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {huntAreas.map((area) => (
+                        <div key={area.id} className="bg-gray-100 rounded-md">
+                          <div
+                            className="p-3 cursor-pointer flex items-center justify-between"
+                            onClick={() => {
+                              setCurrentHuntArea(area);
+                              if (area.bounds) {
+                                const [minLng, minLat, maxLng, maxLat] = area.bounds;
+                                setMapLocation({
+                                  latitude: (minLat + maxLat) / 2,
+                                  longitude: (minLng + maxLng) / 2,
+                                  zoom: 12,
+                                });
+                              }
+                            }}
+                          >
+                            <span className="font-medium">{area.name}</span>
+                            <ChevronRight size={16} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'hunt-clubs' && (
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">CLUBS/OUTFITTERS</h2>
+                  {huntClubs.length === 0 ? (
+                    <div className="text-center p-4 text-gray-500">
+                      No clubs/outfitters available. {isAdmin && 'Click the NEW CLUB button to add one.'}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {huntClubs.map((club) => (
+                        <div key={club.id} className="bg-gray-100 rounded-md">
+                          <div
+                            className="p-3 cursor-pointer flex items-center justify-between"
+                            onClick={() => handleClubClick(club)}
+                          >
+                            <span className="font-medium">
+                              {club.name} {club.location ? `(${club.location})` : ''}
+                            </span>
+                            <ChevronRight size={16} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Desktop sidebar */}
+      <div className="hidden md:block w-64 h-full bg-white border-r border-gray-200 overflow-y-auto">
+        <div className="p-3 border-b border-gray-200">
+          <h1 className="text-lg font-bold text-gray-800 uppercase">HUNT AREAS</h1>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="p-2 flex justify-between border-b border-gray-200">
+          <div className="flex space-x-4">
+            <button
+              className={`px-3 py-1 rounded-md text-sm ${
+                activeTab === 'hunt-areas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+              onClick={() => setActiveTab('hunt-areas')}
+            >
+              Hunt Areas
+            </button>
+            <button
+              className={`px-3 py-1 rounded-md text-sm ${
+                activeTab === 'hunt-clubs' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'
+              }`}
+              onClick={() => setActiveTab('hunt-clubs')}
+            >
+              Hunt Clubs/Outfitters
+            </button>
+          </div>
+          {isAdmin && (
+            <button
+              className="bg-green-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
+              onClick={() => setShowAddModal(true)}
+            >
+              <Plus size={16} className="mr-1" /> {activeTab === 'hunt-areas' ? 'NEW AREA' : 'NEW CLUB'}
+            </button>
+          )}
+        </div>
+
+        {/* Tab Content */}
+        <div className="p-3">
+          {activeTab === 'hunt-areas' && (
+            <>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">
+                {isAdmin ? 'ALL AREAS' : 'YOUR AREAS'}
+              </h2>
+              {huntAreas.length === 0 ? (
+                <div className="text-center p-4 text-gray-500">
+                  No hunt areas available. {isAdmin && 'Click the NEW AREA button to add one.'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {huntAreas.map((area) => (
+                    <div key={area.id} className="bg-gray-100 rounded-md">
+                      <div
+                        className="p-3 cursor-pointer flex items-center justify-between"
+                        onClick={() => {
+                          setCurrentHuntArea(area);
+                          if (area.bounds) {
+                            const [minLng, minLat, maxLng, maxLat] = area.bounds;
+                            setMapLocation({
+                              latitude: (minLat + maxLat) / 2,
+                              longitude: (minLng + maxLng) / 2,
+                              zoom: 12,
+                            });
+                          }
+                        }}
+                      >
+                        <span className="font-medium">{area.name}</span>
+                        <ChevronRight size={16} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {activeTab === 'hunt-clubs' && (
+            <div>
+              <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">CLUBS/OUTFITTERS</h2>
+              {huntClubs.length === 0 ? (
+                <div className="text-center p-4 text-gray-500">
+                  No clubs/outfitters available. {isAdmin && 'Click the NEW CLUB button to add one.'}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {huntClubs.map((club) => (
+                    <div key={club.id} className="bg-gray-100 rounded-md">
+                      <div
+                        className="p-3 cursor-pointer flex items-center justify-between"
+                        onClick={() => handleClubClick(club)}
+                      >
+                        <span className="font-medium">
+                          {club.name} {club.location ? `(${club.location})` : ''}
+                        </span>
+                        <ChevronRight size={16} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Map container */}
+      <div className="flex-1 relative">
+        <MapView activeTab={activeTab} />
+        <div className="hidden md:block absolute top-4 left-4 z-10">
           <button
-            className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-areas' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-            onClick={() => setActiveTab('hunt-areas')}
+            onClick={() => setShowSidebar(!showSidebar)}
+            className="bg-white p-2 rounded-md shadow-md hover:bg-gray-100"
           >
-            Hunt Areas
-          </button>
-          <button
-            className={`px-3 py-1 rounded-md text-sm ${activeTab === 'hunt-clubs' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
-            onClick={() => setActiveTab('hunt-clubs')}
-          >
-            Hunt Clubs/Outfitters
+            {showSidebar ? '◀' : '▶'}
           </button>
         </div>
-        {isAdmin && (
-          <button
-            className="bg-green-600 text-white px-3 py-1 rounded-md text-sm flex items-center"
-            onClick={() => setShowAddHuntAreaModal(true)}
-          >
-            <Plus size={16} className="mr-1" /> {activeTab === 'hunt-areas' ? 'NEW AREA' : 'NEW CLUB'}
-          </button>
-        )}
       </div>
 
-      {/* Tab Content */}
-      <div className="p-3 md:p-4">
-        {activeTab === 'hunt-areas' && (
-          <>
-            <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">
-              {isAdmin ? 'ALL AREAS' : 'YOUR AREAS'}
-            </h2>
-            {huntAreas.length === 0 ? (
-              <div className="text-center p-4 text-gray-500">
-                No hunt areas available. {isAdmin && 'Click the NEW AREA button to add one.'}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {huntAreas.map((area) => (
-                  <div key={area.id} className="bg-gray-100 rounded-md">
-                    <div
-                      className="p-3 cursor-pointer flex items-center justify-between"
-                      onClick={() => {
-                        setCurrentHuntArea(area);
-                        if (area.bounds) {
-                          const [minLng, minLat, maxLng, maxLat] = area.bounds;
-                          setMapLocation({
-                            latitude: (minLat + maxLat) / 2,
-                            longitude: (minLng + maxLng) / 2,
-                            zoom: 12,
-                          });
-                        }
-                      }}
-                    >
-                      <span className="font-medium">{area.name}</span>
-                      <ChevronRight size={16} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {activeTab === 'hunt-clubs' && (
-          <div>
-            <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">CLUBS/OUTFITTERS</h2>
-            {huntClubs.length === 0 ? (
-              <div className="text-center p-4 text-gray-500">
-                No clubs/outfitters available. {isAdmin && 'Click the NEW CLUB button to add one.'}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {huntClubs.map((club) => (
-                  <div key={club.id} className="bg-gray-100 rounded-md">
-                    <div
-                      className="p-3 cursor-pointer flex items-center justify-between"
-                      onClick={() => handleClubClick(club)}
-                    >
-                      <span className="font-medium">
-                        {club.name} {club.location ? `(${club.location})` : ''}
-                      </span>
-                      <ChevronRight size={16} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Add Hunt Area/Club Modal */}
-      {showAddHuntAreaModal && (
+      {/* Add Hunt Area or Club Modal */}
+      {showAddModal && (
         <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-md shadow-lg p-6 w-full max-w-md">
-            <h2 className="text-lg font-bold mb-4">Add {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}</h2>
+            <h2 className="text-lg font-bold mb-4">
+              {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}
+            </h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -422,7 +626,7 @@ const MapSidebar: React.FC = () => {
                         className="w-full p-2 border border-gray-300 rounded-md pr-8"
                         value={clubSearchQuery}
                         onChange={(e) => setClubSearchQuery(e.target.value)}
-                        placeholder="Search for a club or outfitter"
+                        placeholder="Search for a club or outfitter (e.g., name or location)"
                       />
                       {clubSearchQuery && (
                         <button
@@ -484,7 +688,7 @@ const MapSidebar: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setShowAddHuntAreaModal(false);
+                    setShowAddModal(false);
                     setSearchQuery('');
                     setPlaceSuggestions([]);
                     setSearchError(null);
@@ -495,6 +699,7 @@ const MapSidebar: React.FC = () => {
                     setClubSuggestions([]);
                     setClubSearchError(null);
                     setSelectedClub(null);
+                    setNewClubCoordinates(null);
                   }}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
                 >
@@ -503,7 +708,11 @@ const MapSidebar: React.FC = () => {
                 <button
                   type="submit"
                   className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  disabled={activeTab === 'hunt-areas' ? (!newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)) : !selectedClub}
+                  disabled={
+                    activeTab === 'hunt-areas'
+                      ? !newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)
+                      : !selectedClub || !newClubCoordinates
+                  }
                 >
                   Add {activeTab === 'hunt-areas' ? 'Area' : 'Club'}
                 </button>
@@ -512,65 +721,6 @@ const MapSidebar: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-const Map: React.FC = () => {
-  const { user } = useUser();
-  const [showSidebar, setShowSidebar] = useState(false);
-
-  return (
-    <div className="flex h-full flex-col md:flex-row">
-      {/* Mobile menu button */}
-      <div className="md:hidden bg-white p-2 border-b border-gray-200 flex justify-between items-center z-10">
-        <h1 className="font-semibold">Wildpursuit Map</h1>
-        <button
-          onClick={() => setShowSidebar(!showSidebar)}
-          className="p-2 rounded-md bg-gray-100"
-        >
-          <Menu size={20} />
-        </button>
-      </div>
-
-      {/* Sidebar for mobile */}
-      <div
-        className={`md:hidden fixed inset-0 bg-gray-800 bg-opacity-75 z-40 transition-opacity duration-300 ${
-          showSidebar ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        }`}
-      >
-        <div
-          className={`absolute top-0 left-0 h-full bg-white transform transition-transform duration-300 ease-in-out overflow-auto ${
-            showSidebar ? 'translate-x-0' : '-translate-x-full'
-          }`}
-        >
-          <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-            <h2 className="font-semibold">Map Options</h2>
-            <button onClick={() => setShowSidebar(false)} className="text-gray-500">
-              ×
-            </button>
-          </div>
-          <MapSidebar />
-        </div>
-      </div>
-
-      {/* Desktop sidebar */}
-      <div className="hidden md:block">
-        <MapSidebar />
-      </div>
-
-      {/* Map container */}
-      <div className="flex-1 relative">
-        <MapView />
-        <div className="hidden md:block absolute top-4 left-4 z-10">
-          <button
-            onClick={() => setShowSidebar(!showSidebar)}
-            className="bg-white p-2 rounded-md shadow-md hover:bg-gray-100"
-          >
-            {showSidebar ? '◀' : '▶'}
-          </button>
-        </div>
-      </div>
     </div>
   );
 };

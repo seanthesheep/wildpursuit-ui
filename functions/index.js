@@ -1,7 +1,7 @@
 import { onRequest } from 'firebase-functions/v2/https';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import fetch from 'node-fetch'; // Use node-fetch for making HTTP requests
+import fetch from 'node-fetch';
 
 initializeApp();
 const db = getFirestore();
@@ -10,16 +10,22 @@ export const syncSpypointPhotos = onRequest({
   cors: ['http://localhost:5173', 'http://localhost:3000'],
   maxInstances: 10,
   memory: '256MiB',
+  timeoutSeconds: 300,
 }, async (req, res) => {
-  // Set CORS headers for preflight requests
-  res.set('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const allowedOrigins = ['http://localhost:5173', 'http://localhost:3000'];
+  const origin = req.headers.origin;
+  res.set('Access-Control-Allow-Origin', allowedOrigins.includes(origin) ? origin : allowedOrigins[0]);
   res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.set('Access-Control-Allow-Headers', 'Content-Type');
   res.set('Access-Control-Max-Age', '3600');
 
-  // Handle OPTIONS request
   if (req.method === 'OPTIONS') {
     res.status(204).send('');
+    return;
+  }
+
+  if (!['GET', 'POST'].includes(req.method)) {
+    res.status(405).send('Method Not Allowed');
     return;
   }
 
@@ -27,12 +33,11 @@ export const syncSpypointPhotos = onRequest({
     const userId = req.method === 'POST' ? req.body.userId : req.query.userId;
     let { username, password } = req.body || {};
 
-    if (!userId) {
-      res.status(400).send('User ID is required');
+    if (typeof userId !== 'string' || userId.trim() === '') {
+      res.status(400).send('Invalid User ID');
       return;
     }
 
-    // For GET requests, retrieve credentials from Firestore
     if (req.method === 'GET') {
       const userDoc = await db
         .collection('users')
@@ -56,12 +61,10 @@ export const syncSpypointPhotos = onRequest({
       return;
     }
 
-    // Login to Spypoint API
+    console.log(`Logging in for user ${userId}`);
     const loginResponse = await fetch('https://restapi.spypoint.com/api/v3/user/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
 
@@ -73,12 +76,15 @@ export const syncSpypointPhotos = onRequest({
     }
 
     const loginData = await loginResponse.json();
-    const token = loginData.token;
+    if (!loginData?.token) {
+      console.error('Login response missing token:', loginData);
+      res.status(500).send('Invalid response from Spypoint API');
+      return;
+    }
 
-    // Debug: Log token after login
+    const token = loginData.token;
     console.log('Login successful, token:', token);
 
-    // If this is a POST request, save the credentials
     if (req.method === 'POST') {
       await db
         .collection('users')
@@ -92,19 +98,14 @@ export const syncSpypointPhotos = onRequest({
           token,
         });
 
-      res.json({
-        success: true,
-        message: 'Credentials verified and saved',
-      });
+      res.json({ success: true, message: 'Credentials verified and saved' });
       return;
     }
 
-    // For GET requests, fetch cameras and photos
+    console.log(`Fetching cameras for user ${userId}`);
     const camerasResponse = await fetch('https://restapi.spypoint.com/api/v3/camera/all', {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
+      headers: { 'Authorization': `Bearer ${token}` },
     });
 
     if (!camerasResponse.ok) {
@@ -120,75 +121,72 @@ export const syncSpypointPhotos = onRequest({
       return;
     }
 
-    // Debug: Log cameras
-    console.log('Cameras found:', cameras);
-
+    console.log('Cameras found:', cameras.length);
     let allPhotos = [];
+    const batch = db.batch();
+
     for (const camera of cameras) {
-      // Use the name from camera.config.name if available
       const cameraData = {
         id: camera.id,
-        name: camera.config?.name || 'Unnamed Camera', // Use config.name if available
-        notes: camera.notes || '', // Add notes if available
+        name: camera.config?.name || 'Unnamed Camera',
+        notes: camera.notes || '',
         lastSync: FieldValue.serverTimestamp(),
       };
 
-      await db
-        .collection('users')
-        .doc(userId)
-        .collection('cameras')
-        .doc(camera.id)
-        .set(cameraData, { merge: true }); // Use merge to avoid overwriting existing data
+      const cameraRef = db.collection('users').doc(userId).collection('cameras').doc(camera.id);
+      batch.set(cameraRef, cameraData, { merge: true });
 
-      const photosResponse = await fetch('https://restapi.spypoint.com/api/v3/photo/all', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          camera: [camera.id],
-          dateEnd: '2100-01-01T00:00:00.000Z',
-          limit: 100,
-          mediaTypes: [],
-          species: [],
-        }),
-      });
+      let offset = 0;
+      while (true) {
+        const photosResponse = await fetch('https://restapi.spypoint.com/api/v3/photo/all', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            camera: [camera.id],
+            dateEnd: '2100-01-01T00:00:00.000Z',
+            limit: 100,
+            offset,
+            mediaTypes: [],
+            species: [],
+          }),
+        });
 
-      if (!photosResponse.ok) {
-        const errorText = await photosResponse.text();
-        console.error(`Failed to fetch photos for camera ${camera.id}:`, errorText);
-        continue;
-      }
+        if (!photosResponse.ok) {
+          const errorText = await photosResponse.text();
+          console.error(`Failed to fetch photos for camera ${camera.id}:`, errorText);
+          break;
+        }
 
-      const photos = await photosResponse.json();
+        const photos = await photosResponse.json();
+        allPhotos.push(...photos.photos);
 
-      // Store photos in Firestore
-      for (const photo of photos.photos) {
-        const photoData = {
-          cameraId: camera.id,
-          userId: userId,
-          date: photo.date,
-          originDate: photo.originDate,
-          originName: photo.originName,
-          originSize: photo.originSize,
-          smallUrl: `https://${photo.small.host}/${photo.small.path}`,
-          mediumUrl: `https://${photo.medium.host}/${photo.medium.path}`,
-          largeUrl: `https://${photo.large.host}/${photo.large.path}`,
-          tags: photo.tag || [],
-        };
+        for (const photo of photos.photos) {
+          const photoData = {
+            cameraId: camera.id,
+            userId: userId,
+            date: photo.date,
+            originDate: photo.originDate,
+            originName: photo.originName,
+            originSize: photo.originSize,
+            smallUrl: `https://${photo.small.host}/${photo.small.path}`,
+            mediumUrl: `https://${photo.medium.host}/${photo.medium.path}`,
+            largeUrl: `https://${photo.large.host}/${photo.large.path}`,
+            tags: photo.tag || [],
+          };
 
-        await db
-          .collection('users')
-          .doc(userId)
-          .collection('cameras')
-          .doc(camera.id)
-          .collection('photos')
-          .doc(photo.id)
-          .set(photoData);
+          const photoRef = cameraRef.collection('photos').doc(photo.id);
+          batch.set(photoRef, photoData);
+        }
+
+        if (!photos.nextPage) break; // Adjust based on actual API response
+        offset += 100;
       }
     }
 
+    await batch.commit();
     res.json({
       success: true,
       photosCount: allPhotos.length,
@@ -196,6 +194,12 @@ export const syncSpypointPhotos = onRequest({
     });
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).send(error.message);
+    if (error.code === 'ENOTFOUND') {
+      res.status(503).send('Network error: Unable to reach Spypoint API');
+    } else if (error.code?.startsWith('firestore/')) {
+      res.status(500).send('Firestore error: Unable to save data');
+    } else {
+      res.status(500).send('Internal server error');
+    }
   }
 });
