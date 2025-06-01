@@ -39,8 +39,10 @@ const CameraMarkerPopup: React.FC<CameraMarkerPopupProps> = ({ markerId, userId,
 
         // Check cache first
         const cachedMarker = getCachedData(`marker_${markerId}`);
+        console.log('Cached marker data:', cachedMarker); // Debug log
         if (cachedMarker && cachedMarker.cameraId) {
           const camera = getCameraById(cachedMarker.cameraId);
+          console.log(camera,"camera")
           if (camera) {
             console.log('Found camera in cache:', camera); // Debug log
             setSelectedCameraId(cachedMarker.cameraId);
@@ -48,6 +50,7 @@ const CameraMarkerPopup: React.FC<CameraMarkerPopupProps> = ({ markerId, userId,
             
             // Always fetch the latest photo
             const photo = await getRecentPhoto(cachedMarker.cameraId);
+            console.log(photo,"photo")
             if (photo) {
               console.log('Found recent photo:', photo); // Debug log
               setRecentPhoto(photo);

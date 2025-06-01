@@ -135,6 +135,50 @@ const Sidebar: React.FC = () => {
                   </ul>
                 </li>
               )}
+
+              {/* Hunt Management Section */}
+              <li className="mt-6">
+                <div className="px-4 py-2">
+                  <h3 className="text-xs text-gray-500 uppercase tracking-wider hidden lg:block">
+                    Hunt Management
+                  </h3>
+                  <div className="lg:hidden flex justify-center">
+                    <Users size={16} className="text-gray-500" />
+                  </div>
+                </div>
+                <ul className="mt-1 space-y-1">
+                  <li>
+                    <NavLink
+                      to="/hunt-club"
+                      className={({ isActive }) =>
+                        `flex items-center px-4 py-3 text-sm rounded-md transition-colors ${
+                          isActive
+                            ? 'bg-green-700 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                        }`
+                      }
+                    >
+                      <Users size={20} className="flex-shrink-0" />
+                      <span className="lg:block ml-3">Hunt Clubs</span>
+                    </NavLink>
+                  </li>
+                  <li>
+                    <NavLink
+                      to="/hunt-outfitter"
+                      className={({ isActive }) =>
+                        `flex items-center px-4 py-3 text-sm rounded-md transition-colors ${
+                          isActive
+                            ? 'bg-green-700 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                        }`
+                      }
+                    >
+                      <Users size={20} className="flex-shrink-0" />
+                      <span className="lg:block ml-3">Hunt Outfitters</span>
+                    </NavLink>
+                  </li>
+                </ul>
+              </li>
             </ul>
           </nav>
         </div>

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, ReactNode, useRef, useMemo, useEffect, useCallback, Dispatch, SetStateAction } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useMemo, useEffect, Dispatch, SetStateAction } from 'react';
 import {
   addHuntAreaToFirestore,
   addMarkerToFirestore,
@@ -10,6 +10,8 @@ import {
   deleteMarkerFromFirestore,
   addHuntClubToFirestore,
   getHuntClubsFromFirestore,
+  addHuntOutfitterToFirestore,
+  getHuntOutfittersFromFirestore,
   db,
 } from "../firebase";
 import { HuntArea, Marker, MarkerType } from '../types/types';
@@ -24,16 +26,28 @@ interface Club {
   clubId: string;
 }
 
+interface Outfitter {
+  id: string;
+  name: string;
+  location?: string;
+  coordinates?: [number, number];
+  notes?: string;
+  createdBy: string;
+  outfitterId: string;
+}
+
 interface MapContextType {
   currentHuntArea: HuntArea | null;
   huntAreas: HuntArea[];
-  huntClubs: Club[]; // Added huntClubs to context
+  huntClubs: Club[];
+  huntOutfitters: Outfitter[];
   markers: Marker[];
   selectedMarkerId: string | null;
   mapLocation: { latitude: number; longitude: number; zoom: number };
   setCurrentHuntArea: (area: HuntArea | null) => void;
   setHuntAreas: (areas: HuntArea[]) => void;
-  setHuntClubs: (clubs: Club[]) => void; // Added setter for huntClubs
+  setHuntClubs: (clubs: Club[]) => void;
+  setHuntOutfitters: (outfitters: Outfitter[]) => void;
   addHuntArea: (area: HuntArea) => void;
   updateHuntArea: (id: string, area: Partial<HuntArea>) => void;
   deleteHuntArea: (id: string) => void;
@@ -53,19 +67,23 @@ interface MapContextType {
   addHuntAreaToFirestore: (area: HuntArea) => Promise<string>;
   getMarkersForHuntArea: (huntAreaId: string) => Promise<Marker[]>;
   addHuntClubToFirestore: (club: Club) => Promise<string>;
-  getHuntClubsFromFirestore: () => Promise<Club[]>; // Added to context
+  getHuntClubsFromFirestore: () => Promise<Club[]>;
+  addHuntOutfitterToFirestore: (outfitter: Outfitter) => Promise<string>;
+  getHuntOutfittersFromFirestore: () => Promise<Outfitter[]>;
 }
 
 const defaultMapContext: MapContextType = {
   currentHuntArea: null,
   huntAreas: [],
-  huntClubs: [], // Added to default context
+  huntClubs: [],
+  huntOutfitters: [],
   markers: [],
   selectedMarkerId: null,
   mapLocation: { latitude: 34.7195, longitude: -84.5478, zoom: 15 },
   setCurrentHuntArea: () => console.warn('not implemented in defaultMapContext'),
   setHuntAreas: () => console.warn('not implemented in defaultMapContext'),
-  setHuntClubs: () => console.warn('not implemented in defaultMapContext'), // Added to default context
+  setHuntClubs: () => console.warn('not implemented in defaultMapContext'),
+  setHuntOutfitters: () => console.warn('not implemented in defaultMapContext'),
   addHuntArea: () => console.warn('not implemented in defaultMapContext'),
   updateHuntArea: () => console.warn('not implemented in defaultMapContext'),
   deleteHuntArea: () => console.warn('not implemented in defaultMapContext'),
@@ -96,17 +114,26 @@ const defaultMapContext: MapContextType = {
   addHuntAreaToFirestore: async () => '',
   getMarkersForHuntArea: async () => Promise.resolve([]),
   addHuntClubToFirestore: async () => '',
-  getHuntClubsFromFirestore: async () => Promise.resolve([]), // Added to default context
+  getHuntClubsFromFirestore: async () => Promise.resolve([]),
+  addHuntOutfitterToFirestore: async () => '',
+  getHuntOutfittersFromFirestore: async () => Promise.resolve([]),
 };
 
 const MapContext = createContext<MapContextType>(defaultMapContext);
 
-export const useMap = () => useContext(MapContext);
+export const useMap = () => {
+  const context = useContext(MapContext);
+  if (context === defaultMapContext) {
+    throw new Error('useMap must be used within a MapProvider');
+  }
+  return context;
+};
 
 export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [currentHuntArea, setCurrentHuntArea] = useState<HuntArea | null>(null);
   const [huntAreas, setHuntAreas] = useState<HuntArea[]>([]);
-  const [huntClubs, setHuntClubs] = useState<Club[]>([]); // Added state for huntClubs
+  const [huntClubs, setHuntClubs] = useState<Club[]>([]);
+  const [huntOutfitters, setHuntOutfitters] = useState<Outfitter[]>([]);
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [mapLocationState, setMapLocationState] = useState({
@@ -122,9 +149,10 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchHuntAreas = async () => {
       try {
         const areas = await getHuntAreasFromFirestore();
-        setHuntAreas(areas);
+        setHuntAreas(areas || []); // Ensure array is always set
       } catch (error) {
         console.error('Error fetching hunt areas:', error);
+        setHuntAreas([]); // Fallback to empty array on error
       }
     };
     fetchHuntAreas();
@@ -135,12 +163,27 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchHuntClubs = async () => {
       try {
         const clubs = await getHuntClubsFromFirestore();
-        setHuntClubs(clubs);
+        setHuntClubs(clubs || []);
       } catch (error) {
         console.error('Error fetching hunt clubs:', error);
+        setHuntClubs([]);
       }
     };
     fetchHuntClubs();
+  }, []);
+
+  // Fetch hunt outfitters from Firestore
+  useEffect(() => {
+    const fetchHuntOutfitters = async () => {
+      try {
+        const outfitters = await getHuntOutfittersFromFirestore();
+        setHuntOutfitters(outfitters || []);
+      } catch (error) {
+        console.error('Error fetching hunt outfitters:', error);
+        setHuntOutfitters([]);
+      }
+    };
+    fetchHuntOutfitters();
   }, []);
 
   // Fetch markers for the current hunt area
@@ -149,9 +192,10 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const fetchMarkers = async () => {
       try {
         const areaMarkers = await getMarkersForHuntArea(currentHuntArea.id);
-        setMarkers(areaMarkers);
+        setMarkers(areaMarkers || []);
       } catch (error) {
         console.error('Error fetching markers:', error);
+        setMarkers([]);
       }
     };
     fetchMarkers();
@@ -294,12 +338,14 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setMarkers,
     currentHuntArea,
     huntAreas,
-    huntClubs, // Added to context value
+    huntClubs,
+    huntOutfitters,
     selectedMarkerId,
     mapLocation: mapLocationState,
     setCurrentHuntArea,
     setHuntAreas,
-    setHuntClubs, // Added to context value
+    setHuntClubs,
+    setHuntOutfitters,
     addHuntArea,
     updateHuntArea,
     deleteHuntArea,
@@ -318,12 +364,15 @@ export const MapProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     addHuntAreaToFirestore,
     getMarkersForHuntArea,
     addHuntClubToFirestore,
-    getHuntClubsFromFirestore, // Added to context value
+    getHuntClubsFromFirestore,
+    addHuntOutfitterToFirestore,
+    getHuntOutfittersFromFirestore,
   }), [
     markers,
     currentHuntArea,
     huntAreas,
-    huntClubs, // Added to dependencies
+    huntClubs,
+    huntOutfitters,
     selectedMarkerId,
     mapLocationState,
   ]);

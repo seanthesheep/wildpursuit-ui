@@ -6,11 +6,13 @@ import { db } from '../firebase'; // Firestore instance
 import { collection, getDocs, query, orderBy, limit, startAfter } from 'firebase/firestore';
 import CameraMarkerPopup from '../components/map/CameraMarkerPopup';
 import PhotoCard from '../components/PhotoCard';
+import SpypointModal from '../components/modals/SpypointModal';
 import { Marker, CameraPhoto } from '../types/types';
-
+import { getSpypointCredentials } from '../firebase';
+import SpypointIntegerationModal from '../components/modals/SpyPointIntegerationModal';
 const TrailCameras: React.FC = () => {
   const { user } = useUser();
-  const [markers, setMarkers] = useState<Marker[]>([]); // State for markers
+  const [markers, setMarkers] = useState<Marker[]>([]);
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [photos, setPhotos] = useState<CameraPhoto[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -18,12 +20,30 @@ const TrailCameras: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [totalPhotosLoaded, setTotalPhotosLoaded] = useState(0);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
-  const [lastVisible, setLastVisible] = useState<any>(null); // Add this state for pagination
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [existingCredentials, setExistingCredentials] = useState<{ username: string; password: string } | null>(null);
 
-  const PHOTOS_PER_PAGE = 12; // Number of photos to load at once
-
-  const userId = user?.id || 'exampleUserId'; // Replace with actual user ID from context/auth
+  const PHOTOS_PER_PAGE = 12;
+  const userId = user?.id || 'exampleUserId';
   const { syncPhotos, isLoading, lastSync, error } = useSpypointSync();
+
+  // Fetch Spypoint credentials on component mount
+  useEffect(() => {
+    const fetchCredentials = async () => {
+      if (user?.id) {
+        try {
+          const credentials = await getSpypointCredentials(user.id);
+          if (credentials) {
+            setExistingCredentials({ username: credentials.username, password: '' }); // Password is hashed, so we can't retrieve it
+          }
+        } catch (error) {
+          console.error('Error fetching Spypoint credentials:', error);
+        }
+      }
+    };
+    fetchCredentials();
+  }, [user?.id]);
 
   // Fetch markers from Firestore
   useEffect(() => {
@@ -35,14 +55,12 @@ const TrailCameras: React.FC = () => {
           id: doc.id,
           ...doc.data(),
         })) as Marker[];
-
-        console.log('Fetched Markers:', fetchedMarkers); // Debug log
+        console.log('Fetched Markers:', fetchedMarkers);
         setMarkers(fetchedMarkers);
       } catch (error) {
         console.error('Error fetching markers:', error);
       }
     };
-
     fetchMarkers();
   }, []);
 
@@ -61,14 +79,12 @@ const TrailCameras: React.FC = () => {
         'photos'
       );
 
-      // Create query with proper pagination
       let q = query(
         photosCollection,
         orderBy('date', 'desc'),
         limit(PHOTOS_PER_PAGE)
       );
 
-      // Add startAfter for subsequent pages
       if (page > 1 && lastVisible) {
         q = query(
           photosCollection,
@@ -80,20 +96,14 @@ const TrailCameras: React.FC = () => {
 
       const snapshot = await getDocs(q);
       const fetchedPhotos: CameraPhoto[] = [];
-
-      // Update lastVisible
       setLastVisible(snapshot.docs[snapshot.docs.length - 1]);
 
       snapshot.forEach((doc) => {
         const data = doc.data();
-        
-        // Validate URL before adding to fetchedPhotos
         if (!data.mediumUrl) {
           console.warn('Photo missing mediumUrl:', doc.id);
-          return; // Skip this photo
+          return;
         }
-
-        // Validate the URL format
         try {
           new URL(data.mediumUrl);
           fetchedPhotos.push({
@@ -110,7 +120,7 @@ const TrailCameras: React.FC = () => {
           console.error('Invalid photo URL:', {
             photoId: doc.id,
             url: data.mediumUrl,
-            error
+            error,
           });
         }
       });
@@ -131,10 +141,9 @@ const TrailCameras: React.FC = () => {
       setCurrentPage(1);
       setTotalPhotosLoaded(0);
       setHasMore(true);
-      setLastVisible(null); // Reset lastVisible when camera changes
+      setLastVisible(null);
       return;
     }
-
     fetchPhotos(1);
   }, [selectedCameraId]);
 
@@ -142,6 +151,12 @@ const TrailCameras: React.FC = () => {
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
     fetchPhotos(nextPage);
+  };
+
+  const handleConnect = (username: string, password: string) => {
+    setExistingCredentials({ username, password: '' });
+    setIsModalOpen(false);
+    syncPhotos(); // Trigger sync after connecting
   };
 
   return (
@@ -172,13 +187,21 @@ const TrailCameras: React.FC = () => {
 
       <div className="flex justify-between items-center mb-4 p-4 bg-white border-b border-gray-200">
         <h1 className="text-xl font-bold">Trail Cameras</h1>
-        <button
-          onClick={syncPhotos}
-          disabled={isLoading}
-          className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:opacity-50"
-        >
-          {isLoading ? 'Syncing...' : 'Sync Photos'}
-        </button>
+        <div className="flex space-x-2">
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600"
+          >
+            {existingCredentials ? 'Manage Spypoint' : 'Connect Spypoint'}
+          </button>
+          <button
+            onClick={syncPhotos}
+            disabled={isLoading || !existingCredentials}
+            className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:opacity-50 hover:bg-blue-600"
+          >
+            {isLoading ? 'Syncing...' : 'Sync Photos'}
+          </button>
+        </div>
       </div>
       {error && (
         <div className="text-red-500 mb-4 p-4">
@@ -200,16 +223,15 @@ const TrailCameras: React.FC = () => {
               <Plus size={20} />
             </button>
           </div>
-
           <div className="flex-1 overflow-y-auto p-2">
-            {markers.filter(marker => marker.type === 'camera').map((marker) => (
+            {markers.filter((marker) => marker.type === 'camera').map((marker) => (
               <div
                 key={marker.id}
                 className="bg-orange-100 p-3 rounded-md flex items-center border-l-4 border-orange-500 cursor-pointer"
                 onClick={() => {
                   if (marker.cameraId) {
                     console.log(`Selected Camera ID: ${marker.cameraId}`);
-                    setCurrentPage(1); // Reset to first page
+                    setCurrentPage(1);
                     setSelectedCameraId(marker.cameraId);
                   } else {
                     console.warn(`Marker ${marker.id} has no associated camera.`);
@@ -252,14 +274,9 @@ const TrailCameras: React.FC = () => {
             <div className="p-4">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                 {photos.map((photo) => (
-                  <PhotoCard 
-                    key={photo.id} 
-                    photo={photo} 
-                    onSync={syncPhotos} 
-                  />
+                  <PhotoCard key={photo.id} photo={photo} onSync={syncPhotos} />
                 ))}
               </div>
-              
               {hasMore && (
                 <div className="text-center mt-4">
                   <button
@@ -275,6 +292,14 @@ const TrailCameras: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Spypoint Modal */}
+      <SpypointIntegerationModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConnect={handleConnect}
+        existingCredentials={existingCredentials}
+      />
     </div>
   );
 };

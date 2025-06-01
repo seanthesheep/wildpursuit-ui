@@ -23,7 +23,7 @@ export const useSpypointSync = () => {
     try {
       console.log(user.id,"id")
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL}/syncSpypointPhotos?userId=${user.id}`,
+        `${import.meta.env.VITE_API_URL}/${import.meta.env.VITE_FIREBASE_PROJECT_ID}/us-central1/syncSpypointPhotos?userId=${user.id}`,
         {
           method: 'GET',
           headers: {

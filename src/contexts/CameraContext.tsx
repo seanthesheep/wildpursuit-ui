@@ -65,7 +65,7 @@ export const CameraProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const photosCollection = collection(db, 'users', user.id, 'cameras', cameraId, 'photos');
       const q = query(photosCollection, orderBy('date', 'desc'), limit(1));
       const snapshot = await getDocs(q);
-      
+       console.log(snapshot,"snapShot")
       if (snapshot.empty) return null;
 
       const photo = {

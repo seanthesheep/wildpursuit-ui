@@ -4,14 +4,12 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { MapPin, Crosshair, Wind, Compass, Maximize, Plus, Minus, Layers, Search, X } from 'react-feather';
 import { useMap } from '../../contexts/MapContext';
 import { useUser } from '../../contexts/UserContext';
-import MarkerIcon from './MarkerIcon';
-import CustomMarkerIcon from './CustomMarkerIcon';
-import CameraMarkerPopup from './CameraMarkerPopup';
 import MarkerDetailsPanel from './MarkerDetailsPanel';
 import { v4 as uuidv4 } from 'uuid';
 import { HuntArea, Marker, MarkerType } from '../../types/types';
-import { addMarkerToFirestore, updateMarkerInFirestore, addHuntClubToFirestore, getHuntClubsFromFirestore } from '../../firebase';
+import { addMarkerToFirestore, updateMarkerInFirestore, addHuntClubToFirestore, getHuntClubsFromFirestore, addHuntOutfitterToFirestore, getHuntOutfittersFromFirestore, addHuntAreaToFirestore, getHuntAreasFromFirestore } from '../../firebase';
 import debounce from 'lodash/debounce';
+import { useLocation } from 'react-router-dom'; // Import useLocation
 
 // Mapbox access token
 mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -37,8 +35,14 @@ interface Club {
   clubId: string;
 }
 
-interface MapViewProps {
-  activeTab: 'hunt-areas' | 'hunt-clubs';
+interface Outfitter {
+  id: string;
+  name: string;
+  location: string;
+  coordinates?: [number, number]; // [longitude, latitude]
+  notes?: string;
+  createdBy: string;
+  outfitterId: string;
 }
 
 const MarkerTypes = [
@@ -49,6 +53,7 @@ const MarkerTypes = [
   { id: 'custom-stand', name: 'Custom Stand', color: 'white', icon: '/svgs/Custom.svg' },
   { id: 'food-plot', name: 'Food Plot', color: 'green', icon: '/svgs/food-plot.svg' },
   { id: 'club-camp', name: 'Club/Camp', color: 'blue', icon: '/svgs/club-camp.svg' },
+  { id: 'outfitter', name: 'Outfitter', color: 'purple', icon: '/svgs/outfitter.svg' },
   { id: 'gate', name: 'Gate', color: 'gray', icon: '/svgs/gate.svg' },
   { id: 'parking', name: 'Parking', color: 'gray', icon: '/svgs/parking.svg' },
   { id: 'ag-field', name: 'Ag Field', color: 'green', icon: '/svgs/ag-field.svg' },
@@ -79,7 +84,7 @@ const MarkerTypes = [
   { id: 'custom', name: 'Custom', color: 'white', icon: '/svgs/Custom.svg' },
 ];
 
-const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
+const MapView: React.FC = () => {
   const {
     getMarkersForHuntArea,
     markers,
@@ -97,15 +102,19 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     addHuntAreaToFirestore,
     huntClubs,
     setHuntClubs,
+    huntOutfitters,
+    setHuntOutfitters,
   } = useMap();
 
   const { user, isAdmin } = useUser();
+  const location = useLocation(); // Use useLocation to get current route
 
-  // Debug user and isAdmin
+  // Debug user and route
   useEffect(() => {
     console.log('User:', user);
     console.log('isAdmin:', isAdmin);
-  }, [user, isAdmin]);
+    console.log('Current route:', location.pathname);
+  }, [user, isAdmin, location.pathname]);
 
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<mapboxgl.Map | null>(null);
@@ -146,6 +155,15 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     return /Mobi|Android/i.test(navigator.userAgent);
   };
 
+  // Determine button and modal type based on route
+  const getEntityType = () => {
+    if (location.pathname === '/hunt-club') return 'hunt-club';
+    if (location.pathname === '/hunt-outfitter') return 'hunt-outfitter';
+    return 'hunt-area';
+  };
+
+  const entityType = getEntityType();
+
   // Debounced search function for place suggestions (Hunt Areas)
   const fetchPlaceSuggestions = useCallback(
     debounce(async (query: string) => {
@@ -158,9 +176,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
       setSearchError(null);
       try {
         const response = await fetch(
-          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${
-            import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
-          }&types=place,locality,region,country&limit=5`
+          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}&types=place,locality,region,country&limit=5`
         );
         if (!response.ok) {
           throw new Error('Failed to fetch place suggestions');
@@ -181,7 +197,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     []
   );
 
-  // Debounced search function for club/outfitter suggestions (from the first code)
+  // Debounced search function for club/outfitter suggestions
   const fetchClubSuggestions = useCallback(
     debounce(async (query: string) => {
       if (!query) {
@@ -193,9 +209,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
       setClubSearchError(null);
       try {
         const response = await fetch(
-          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${
-            import.meta.env.VITE_MAPBOX_ACCESS_TOKEN
-          }&types=poi,place&limit=5`
+          `${GEOCODING_API}/${encodeURIComponent(query)}.json?access_token=${import.meta.env.VITE_MAPBOX_ACCESS_TOKEN}&types=poi,place&limit=5`
         );
         if (!response.ok) {
           throw new Error('Failed to fetch club suggestions');
@@ -209,17 +223,17 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
         }));
         setClubSuggestions(suggestions);
         if (!suggestions.length) {
-          setClubSearchError('No clubs or outfitters found for your query.');
+          setClubSearchError(`No ${entityType === 'hunt-club' ? 'clubs' : 'outfitters'} found for your query.`);
         }
       } catch (error) {
         console.error('Error fetching club suggestions:', error);
-        setClubSearchError('Error fetching clubs. Please try again.');
+        setClubSearchError(`Error fetching ${entityType === 'hunt-club' ? 'clubs' : 'outfitters'}. Please try again.`);
         setClubSuggestions([]);
       } finally {
         setIsClubSearching(false);
       }
     }, 300),
-    []
+    [entityType]
   );
 
   // Fetch hunt clubs from Firestore on mount
@@ -235,15 +249,32 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     fetchHuntClubs();
   }, [setHuntClubs]);
 
+  // Fetch hunt outfitters from Firestore on mount
+  useEffect(() => {
+    const fetchHuntOutfitters = async () => {
+      try {
+        const outfitters = await getHuntOutfittersFromFirestore();
+        setHuntOutfitters(outfitters);
+      } catch (error) {
+        console.error('Error fetching hunt outfitters:', error);
+      }
+    };
+    fetchHuntOutfitters();
+  }, [setHuntOutfitters]);
+
   // Handle search input change for Hunt Areas
   useEffect(() => {
-    fetchPlaceSuggestions(searchQuery);
-  }, [searchQuery, fetchPlaceSuggestions]);
+    if (entityType === 'hunt-area') {
+      fetchPlaceSuggestions(searchQuery);
+    }
+  }, [searchQuery, fetchPlaceSuggestions, entityType]);
 
   // Handle search input change for Clubs/Outfitters
   useEffect(() => {
-    fetchClubSuggestions(clubSearchQuery);
-  }, [clubSearchQuery, fetchClubSuggestions]);
+    if (entityType === 'hunt-club' || entityType === 'hunt-outfitter') {
+      fetchClubSuggestions(clubSearchQuery);
+    }
+  }, [clubSearchQuery, fetchClubSuggestions, entityType]);
 
   // Handle place selection for Hunt Areas
   const handlePlaceSelect = (place: any) => {
@@ -269,7 +300,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     setNewHuntAreaBounds([0, 0, 0, 0]);
   };
 
-  // Handle club selection (from the first code)
+  // Handle club selection
   const handleClubSelect = (club: any) => {
     setSelectedClub(club);
     setClubSearchQuery(club.name);
@@ -353,7 +384,8 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     }
   }, [addingMarker]);
 
-  // Update view state when map moves
+  // Update view
+
   useEffect(() => {
     if (!map.current) return;
 
@@ -640,10 +672,10 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     }
   };
 
-  // Handle adding a new hunt club (from the first code)
+  // Handle adding a new hunt club
   const handleAddHuntClub = async () => {
     if (!selectedClub || !newClubCoordinates) {
-      alert('Please select a club or outfitter.');
+      alert('Please select a club.');
       return;
     }
 
@@ -680,7 +712,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
       addMarker(newMarker);
       setMarkers((prev: any) => [...prev, { ...newMarker, id: markerId }] as Marker[]);
 
-      alert('Club/outfitter added successfully!');
+      alert('Club added successfully!');
       setShowAddModal(false);
       setClubSearchQuery('');
       setClubSuggestions([]);
@@ -690,7 +722,61 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
       setNewHuntAreaNotes('');
     } catch (error) {
       console.error('Error adding hunt club:', error);
-      alert('Failed to add club/outfitter. Please try again.');
+      alert('Failed to add club. Please try again.');
+    }
+  };
+
+  // Handle adding a new outfitter
+  const handleAddOutfitter = async () => {
+    if (!selectedClub || !newClubCoordinates) {
+      alert('Please select an outfitter.');
+      return;
+    }
+
+    const newOutfitter: Outfitter = {
+      id: uuidv4(),
+      name: selectedClub.name,
+      location: selectedClub.location || '',
+      coordinates: newClubCoordinates,
+      notes: newHuntAreaNotes,
+      createdBy: user?.id || '',
+      outfitterId: 'default-outfitter',
+    };
+
+    try {
+      const id = await addHuntOutfitterToFirestore(newOutfitter);
+      const updatedOutfitters = [...huntOutfitters, { ...newOutfitter, id }];
+      setHuntOutfitters(updatedOutfitters);
+
+      const newMarker: Marker = {
+        id: uuidv4(),
+        latitude: newClubCoordinates[1],
+        longitude: newClubCoordinates[0],
+        type: 'outfitter' as MarkerType,
+        name: `${selectedClub.name} Location`,
+        notes: `Marker for ${selectedClub.name}`,
+        createdBy: user?.id || '',
+        inUse: false,
+        assignedTo: null,
+        dateCreated: new Date().toISOString(),
+        huntAreaId: currentHuntArea?.id || 'default-hunt-area',
+      };
+
+      const markerId = await addMarkerToFirestore(newMarker);
+      addMarker(newMarker);
+      setMarkers((prev: any) => [...prev, { ...newMarker, id: markerId }] as Marker[]);
+
+      alert('Outfitter added successfully!');
+      setShowAddModal(false);
+      setClubSearchQuery('');
+      setClubSuggestions([]);
+      setClubSearchError(null);
+      setSelectedClub(null);
+      setNewClubCoordinates(null);
+      setNewHuntAreaNotes('');
+    } catch (error) {
+      console.error('Error adding outfitter:', error);
+      alert('Failed to add outfitter. Please try again.');
     }
   };
 
@@ -698,8 +784,11 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
     <div className="relative h-[500px] w-full">
       <div ref={mapContainer} className="absolute top-0 bottom-0 left-0 right-0 rounded-md" />
 
-      {/* Map Tools (without Add Button) */}
-      <div className="absolute top-4 right-4 bg-white rounded-md shadow-md p-2 flex flex-col space-y-2 z-10">
+      {/* Map Tools (Top-Right) */}
+      <div
+        className="absolute top-4 right-4 bg-white rounded-md shadow-md p-2 flex flex-col space-y-2"
+        style={{ zIndex: 1000 }}
+      >
         <button className="p-2 hover:bg-gray-100 rounded-md">
           <Layers size={20} />
         </button>
@@ -729,7 +818,10 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
 
       {/* Add Marker Form */}
       {addingMarker && (
-        <div className="absolute top-4 left-4 right-4 md:right-auto z-20 bg-white p-4 rounded-md shadow-md md:w-80">
+        <div
+          className="absolute top-4 left-4 right-4 md:right-auto bg-white p-4 rounded-md shadow-md md:w-80"
+          style={{ zIndex: 1000 }}
+        >
           <h2 className="text-lg font-bold mb-4">Add New Marker</h2>
           <form
             onSubmit={(e) => {
@@ -772,7 +864,7 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
                 </optgroup>
                 <optgroup label="Property Features">
                   {MarkerTypes.filter((type) =>
-                    ['food-plot', 'club-camp', 'gate', 'parking', 'ag-field', 'feeder', 'bait-pile', 'custom-property'].includes(type.id)
+                    ['food-plot', 'club-camp', 'outfitter', 'gate', 'parking', 'ag-field', 'feeder', 'bait-pile', 'custom-property'].includes(type.id)
                   ).map((type) => (
                     <option key={type.id} value={type.id}>{type.name}</option>
                   ))}
@@ -831,7 +923,10 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
 
       {/* Marker Details Panel */}
       {markerDetails && (
-        <div className="absolute top-4 left-4 right-4 md:right-auto z-20 md:w-80">
+        <div
+          className="absolute top-4 left-4 right-4 md:right-auto md:w-80"
+          style={{ zIndex: 1000 }}
+        >
           <MarkerDetailsPanel
             marker={markerDetails}
             onClose={() => {
@@ -845,20 +940,25 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
         </div>
       )}
 
-      {/* Add Hunt Area/Club Modal */}
+      {/* Add Hunt Area/Club/Outfitter Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50">
+        <div
+          className="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center"
+          style={{ zIndex: 2000 }}
+        >
           <div className="bg-white rounded-md shadow-lg p-6 w-full max-w-md">
             <h2 className="text-lg font-bold mb-4">
-              {activeTab === 'hunt-areas' ? 'New Hunt Area' : 'New Club/Outfitter'}
+              {entityType === 'hunt-area' ? 'New Hunt Area' : entityType === 'hunt-club' ? 'New Hunt Club' : 'New Hunt Outfitter'}
             </h2>
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                activeTab === 'hunt-areas' ? handleAddHuntArea() : handleAddHuntClub();
+                if (entityType === 'hunt-area') handleAddHuntArea();
+                else if (entityType === 'hunt-club') handleAddHuntClub();
+                else if (entityType === 'hunt-outfitter') handleAddOutfitter();
               }}
             >
-              {activeTab === 'hunt-areas' ? (
+              {entityType === 'hunt-area' ? (
                 <>
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
@@ -918,17 +1018,17 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
                     />
                   </div>
                 </>
-              ) : (
+              ) : entityType === 'hunt-club' ? (
                 <>
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Search Club/Outfitter</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Search Club</label>
                     <div className="relative">
                       <input
                         type="text"
                         className="w-full p-2 border border-gray-300 rounded-md pr-8"
                         value={clubSearchQuery}
                         onChange={(e) => setClubSearchQuery(e.target.value)}
-                        placeholder="Search for a club or outfitter (e.g., name or location)"
+                        placeholder="Search for a club (e.g., name or location)"
                       />
                       {clubSearchQuery && (
                         <button
@@ -981,11 +1081,78 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
                       value={newHuntAreaNotes}
                       onChange={(e) => setNewHuntAreaNotes(e.target.value)}
                       rows={3}
-                      placeholder="Add any notes about the club/outfitter"
+                      placeholder="Add any notes about the club"
                     />
                   </div>
                 </>
-              )}
+              ) : entityType === 'hunt-outfitter' ? (
+                <>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Search Outfitter</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        className="w-full p-2 border border-gray-300 rounded-md pr-8"
+                        value={clubSearchQuery}
+                        onChange={(e) => setClubSearchQuery(e.target.value)}
+                        placeholder="Search for an outfitter (e.g., name or location)"
+                      />
+                      {clubSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={handleClearClubSearch}
+                          className="absolute right-2 top-2 text-gray-500 hover:text-gray-700"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {isClubSearching && <div className="text-sm text-gray-500 mt-1">Searching...</div>}
+                    {clubSearchError && <div className="text-sm text-red-500 mt-1">{clubSearchError}</div>}
+                    {clubSuggestions.length > 0 && (
+                      <ul className="mt-2 border border-gray-300 rounded-md max-h-40 overflow-y-auto bg-white">
+                        {clubSuggestions.map((club) => (
+                          <li
+                            key={club.id}
+                            className="p-2 hover:bg-gray-100 cursor-pointer text-sm"
+                            onClick={() => handleClubSelect(club)}
+                          >
+                            {club.name} ({club.location})
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={selectedClub?.name || ''}
+                      readOnly
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={selectedClub?.location || ''}
+                      readOnly
+                    />
+                  </div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Notes (Optional)</label>
+                    <textarea
+                      className="w-full p-2 border border-gray-300 rounded-md"
+                      value={newHuntAreaNotes}
+                      onChange={(e) => setNewHuntAreaNotes(e.target.value)}
+                      rows={3}
+                      placeholder="Add any notes about the outfitter"
+                    />
+                  </div>
+                </>
+              ) : null}
               <div className="flex justify-end space-x-2">
                 <button
                   type="button"
@@ -1011,12 +1178,12 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
                   type="submit"
                   className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                   disabled={
-                    activeTab === 'hunt-areas'
+                    entityType === 'hunt-area'
                       ? !newHuntAreaName || newHuntAreaBounds.some((coord) => coord === 0)
                       : !selectedClub || !newClubCoordinates
                   }
                 >
-                  Add {activeTab === 'hunt-areas' ? 'Area' : 'Club'}
+                  Add {entityType === 'hunt-area' ? 'Area' : entityType === 'hunt-club' ? 'Club' : 'Outfitter'}
                 </button>
               </div>
             </form>
@@ -1024,8 +1191,11 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
         </div>
       )}
 
-      {/* Bottom Buttons (Add Marker and Add Hunt Area/Club) */}
-      <div className="absolute bottom-4 right-4 left-4 flex justify-between z-10">
+      {/* Bottom Buttons (Bottom-Right) */}
+      <div
+        className="absolute bottom-4 right-4 left-4 flex justify-between"
+        style={{ zIndex: 1000 }}
+      >
         <button
           className={`px-3 py-1 ${
             currentHuntArea ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-400 text-gray-700 cursor-not-allowed'
@@ -1043,12 +1213,10 @@ const MapView: React.FC<MapViewProps> = ({ activeTab }) => {
         </button>
         <button
           className="bg-blue-600 text-white py-2 px-4 rounded-md shadow-md hover:bg-blue-700"
-          onClick={() => {
-            console.log('Add button clicked');
-            setShowAddModal(true);
-          }}
+          style={{ zIndex: 1001 }}
+          onClick={() => setShowAddModal(true)}
         >
-          + NEW HUNT AREA/CLUB
+          + NEW {entityType === 'hunt-area' ? 'HUNT AREA' : entityType === 'hunt-club' ? 'HUNT CLUB' : 'HUNT OUTFITTER'}
         </button>
       </div>
     </div>

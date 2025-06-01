@@ -13,6 +13,7 @@ import { UserProvider } from './contexts/UserContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { CameraProvider } from './contexts/CameraContext';
 import ProtectedRoute from './components/ProtectedRoute';
+import SpypointIntegration from './pages/Spypoint';
 import './App.css';
 
 const App = () => {
@@ -53,6 +54,17 @@ const App = () => {
                       </ProtectedRoute>
                     }
                   />
+                  <Route path='/test' element={
+                    <ProtectedRoute>
+                      <SpypointIntegration isOpen={true} onClose={() => {}} />
+                    </ProtectedRoute>
+                  }/>
+                  <Route path='/hunt-club' element={<ProtectedRoute>
+                    <Map/>
+                  </ProtectedRoute>}/>
+                  <Route path='/hunt-outfitter' element={<ProtectedRoute>
+                    <Map/>
+                  </ProtectedRoute>}/>
                   <Route
                     path="/weather"
                     element={

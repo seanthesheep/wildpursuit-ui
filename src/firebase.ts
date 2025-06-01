@@ -29,10 +29,28 @@ interface Club {
   id: string;
   name: string;
   location?: string;
-  coordinates?: [number, number]; // [longitude, latitude]
+  coordinates?: [number, number];
   notes?: string;
+  membershipFee?: number;
   createdBy: string;
   clubId: string;
+}
+
+interface Outfitter {
+  id: string;
+  name: string;
+  location?: string;
+  coordinates?: [number, number];
+  notes?: string;
+  contactEmail?: string;
+  createdBy: string;
+  outfitterId: string;
+}
+
+interface SpypointCredentials {
+  username: string;
+  passwordHash: string;
+  lastSync?: string;
 }
 
 const firebaseConfig = {
@@ -98,6 +116,8 @@ export const onAuthStateChangedListener = (callback: (user: any) => void) => {
   return onAuthStateChanged(auth, callback);
 };
 
+// Removed duplicate hashCredentials definition to avoid export conflict.
+// Use the imported hashCredentials from './utils/encryption'.
 // Add a new hunt area
 export const addHuntAreaToFirestore = async (huntArea: HuntArea): Promise<string> => {
   try {
@@ -127,6 +147,7 @@ export const getHuntAreasFromFirestore = async (): Promise<HuntArea[]> => {
     const querySnapshot = await getDocs(collection(db, "huntAreas"));
     return querySnapshot.docs.map((doc) => {
       const data = doc.data();
+      console.log(data,"data")
       return {
         id: doc.id,
         name: data.name || "Unnamed Area",
@@ -140,6 +161,7 @@ export const getHuntAreasFromFirestore = async (): Promise<HuntArea[]> => {
         clubId: data.clubId || "",
       } as HuntArea;
     });
+    
   } catch (error) {
     console.error("Error fetching hunt areas:", error);
     throw error;
@@ -165,10 +187,12 @@ export const getMarkersForHuntArea = async (huntAreaId: string): Promise<Marker[
         assignedTo: data.assignedTo || null,
         dateCreated: data.dateCreated || new Date().toISOString(),
         huntAreaId: data.huntAreaId || '',
+        clubId: data.clubId || undefined,
+        outfitterId: data.outfitterId || undefined,
       } as Marker;
     });
   } catch (error) {
-    console.error("Error fetching markers:", error);
+    console.error("Error fetching markers for hunt area:", error);
     throw error;
   }
 };
@@ -220,11 +244,10 @@ export const deleteMarkerFromFirestore = async (id: string) => {
 // Add a new hunt club to Firestore
 export const addHuntClubToFirestore = async (club: Club): Promise<string> => {
   try {
-    console.log(club, "club")
     const docRef = await addDoc(collection(db, 'huntClubs'), club);
     return docRef.id;
   } catch (error) {
-    console.error('Error adding hunt club to Firestore:', error);
+    console.error("Error adding hunt club:", error);
     throw error;
   }
 };
@@ -232,7 +255,7 @@ export const addHuntClubToFirestore = async (club: Club): Promise<string> => {
 // Fetch hunt clubs from Firestore
 export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
   try {
-    const querySnapshot = await getDocs(collection(db, "huntClubs"));
+    const querySnapshot = await getDocs(collection(db, 'huntClubs'));
     return querySnapshot.docs.map((doc) => {
       const data = doc.data();
       return {
@@ -241,6 +264,7 @@ export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
         location: data.location || "",
         coordinates: data.coordinates || undefined,
         notes: data.notes || "",
+        membershipFee: data.membershipFee || undefined,
         createdBy: data.createdBy || "",
         clubId: data.clubId || "",
       } as Club;
@@ -251,32 +275,133 @@ export const getHuntClubsFromFirestore = async (): Promise<Club[]> => {
   }
 };
 
-interface SpypointCredentials {
-  username: string;
-  passwordHash: string;
-  lastSync?: string;
-}
+// Add a new hunt outfitter to Firestore
+export const addHuntOutfitterToFirestore = async (outfitter: Outfitter): Promise<string> => {
+  try {
+    const docRef = await addDoc(collection(db, 'huntOutfitters'), outfitter);
+    return docRef.id;
+  } catch (error) {
+    console.error("Error adding hunt outfitter:", error);
+    throw error;
+  }
+};
 
+// Fetch hunt outfitters from Firestore
+export const getHuntOutfittersFromFirestore = async (): Promise<Outfitter[]> => {
+  try {
+    const querySnapshot = await getDocs(collection(db, 'huntOutfitters'));
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || "Unnamed Outfitter",
+        location: data.location || "",
+        coordinates: data.coordinates || undefined,
+        notes: data.notes || "",
+        contactEmail: data.contactEmail || "",
+        createdBy: data.createdBy || "",
+        outfitterId: data.outfitterId || "",
+      } as Outfitter;
+    });
+  } catch (error) {
+    console.error("Error fetching hunt outfitters:", error);
+    throw error;
+  }
+};
+
+// Get markers for a specific hunt club
+export const getMarkersForHuntClub = async (clubId: string): Promise<Marker[]> => {
+  try {
+    const q = query(collection(db, "markers"), where("clubId", "==", clubId));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        latitude: data.latitude || 0,
+        longitude: data.longitude || 0,
+        type: data.type || 'unknown',
+        name: data.name || 'Unnamed Marker',
+        notes: data.notes || '',
+        createdBy: data.createdBy || '',
+        inUse: data.inUse || false,
+        assignedTo: data.assignedTo || null,
+        dateCreated: data.dateCreated || new Date().toISOString(),
+        huntAreaId: data.huntAreaId || undefined,
+        clubId: data.clubId || '',
+        outfitterId: data.outfitterId || undefined,
+      } as Marker;
+    });
+  } catch (error) {
+    console.error("Error fetching markers for hunt club:", error);
+    throw error;
+  }
+};
+
+// Get markers for a specific outfitter
+export const getMarkersForOutfitter = async (outfitterId: string): Promise<Marker[]> => {
+  try {
+    const q = query(collection(db, "markers"), where("outfitterId", "==", outfitterId));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        latitude: data.latitude || 0,
+        longitude: data.longitude || 0,
+        type: data.type || 'unknown',
+        name: data.name || 'Unnamed Marker',
+        notes: data.notes || '',
+        createdBy: data.createdBy || '',
+        inUse: data.inUse || false,
+        assignedTo: data.assignedTo || null,
+        dateCreated: data.dateCreated || new Date().toISOString(),
+        huntAreaId: data.huntAreaId || undefined,
+        clubId: data.clubId || undefined,
+        outfitterId: data.outfitterId || '',
+      } as Marker;
+    });
+  } catch (error) {
+    console.error("Error fetching markers for outfitter:", error);
+    throw error;
+  }
+};
+
+// Save Spypoint credentials
 export const saveSpypointCredentials = async (
   userId: string,
   credentials: { username: string; password: string }
 ): Promise<void> => {
-  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
-  const hashedCredentials: SpypointCredentials = {
-    username: credentials.username,
-    passwordHash: await hashCredentials(credentials.password),
-    lastSync: new Date().toISOString(),
-  };
-  await setDoc(docRef, hashedCredentials);
+  try {
+    const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+    const hashedCredentials: SpypointCredentials = {
+      username: credentials.username,
+      passwordHash: await hashCredentials(credentials.password),
+      lastSync: new Date().toISOString(),
+    };
+    await setDoc(docRef, hashedCredentials);
+  } catch (error) {
+    console.error("Error saving Spypoint credentials:", error);
+    throw error;
+  }
 };
 
+// Get Spypoint credentials
 export const getSpypointCredentials = async (userId: string): Promise<SpypointCredentials | null> => {
-  const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
-  const docSnap = await getDoc(docRef);
-  if (!docSnap.exists()) {
-    return null;
+  try {
+    const docRef = doc(db, 'users', userId, 'integrations', 'spypoint');
+    const docSnap = await getDoc(docRef);
+    if (!docSnap.exists()) {
+      return null;
+    }
+    return docSnap.data() as SpypointCredentials;
+  } catch (error) {
+    console.error("Error fetching Spypoint credentials:", error);
+    throw error;
   }
-  return docSnap.data() as SpypointCredentials;
 };
+
+// Remove duplicate functions (addOutfitterToFirestore and getOutfittersFromFirestore)
+// They are redundant since addHuntOutfitterToFirestore and getHuntOutfittersFromFirestore already exist
 
 export { auth, db, provider };

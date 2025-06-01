@@ -24,6 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const unsubscribe = onAuthStateChangedListener((user) => {
       if (user) {
+        console.log(user.uid,"userID")
         setIsAuthenticated(true);
       }
       setIsLoading(false);
