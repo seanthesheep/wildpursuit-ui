@@ -781,8 +781,8 @@ const MapView: React.FC = () => {
   };
 
   return (
-    <div className="relative h-[500px] w-full">
-      <div ref={mapContainer} className="absolute top-0 bottom-0 left-0 right-0 rounded-md" />
+    <div className="relative w-full h-full">
+      <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
 
       {/* Map Tools (Top-Right) */}
       <div
